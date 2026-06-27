@@ -256,6 +256,26 @@ textarea:focus {
   background: var(--surface);
 }
 
+.exercise-card.is-complete {
+  border-color: #1f7a64;
+  background: #f2fbf6;
+  box-shadow: 0 8px 24px rgba(31, 122, 100, 0.12);
+}
+
+.exercise-card.is-complete .exercise-head {
+  background: #dff0ea;
+}
+
+.exercise-card.is-complete .exercise-name::after {
+  content: " ✓";
+  color: #0e5d4a;
+}
+
+.exercise-card.is-complete .exercise-stats {
+  color: #0e5d4a;
+  font-weight: 800;
+}
+
 .exercise-head {
   display: flex;
   width: 100%;

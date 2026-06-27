@@ -351,13 +351,13 @@ function renderWorkout() {
     const best = getBest(exercise);
     const suggestion = getSuggestion(exercise);
     const draft = drafts.get(exercise) || {};
+    const completed = isExerciseComplete(draft);
 
     card.classList.toggle("is-open", index === 0);
+    card.classList.toggle("is-complete", completed);
     card.dataset.exercise = exercise;
     card.querySelector(".exercise-name").textContent = exercise;
-    card.querySelector(".exercise-stats").textContent = latest
-      ? `${latest.date} · ${latest.reps || "sin reps"} · ${latest.weight || "sin peso"}`
-      : "Sin registros previos";
+    card.querySelector(".exercise-stats").textContent = getExerciseCardStats(draft, latest);
     card.querySelector(".last-pill").textContent = latest ? `Último ${latest.weight || "-"} kg` : "Sin último peso";
     card.querySelector(".best-pill").textContent = best ? `Mejor ${best} kg` : "Sin mejor peso";
     card.querySelector(".suggest-pill").textContent = suggestion ? `Sugerido ${suggestion} kg` : "Sin sugerencia";
@@ -370,7 +370,12 @@ function renderWorkout() {
     card.querySelectorAll(".decision-button").forEach((button) => {
       button.classList.toggle("is-selected", button.dataset.decision === selectedDecision);
       button.addEventListener("click", () => {
-        updateDraft(exercise, { decision: button.dataset.decision });
+        updateDraft(exercise, { decision: button.dataset.decision, completed: true });
+        card.classList.add("is-complete");
+        card.querySelector(".exercise-stats").textContent = getExerciseCardStats(
+          { ...(drafts.get(exercise) || {}), decision: button.dataset.decision, completed: true },
+          latest,
+        );
         card.querySelectorAll(".decision-button").forEach((item) => item.classList.remove("is-selected"));
         button.classList.add("is-selected");
       });
@@ -388,6 +393,16 @@ function renderWorkout() {
 
 function getWorkoutExercises() {
   return uniqueExercises([...(state.routines[currentRoutine] || []), ...sessionExercises]);
+}
+
+function getExerciseCardStats(draft, latest) {
+  if (isExerciseComplete(draft)) {
+    const reps = clean(draft.reps);
+    const weight = clean(draft.weight);
+    const values = [reps, weight ? `${weight} kg` : "", decisionText(draft.decision)].filter(Boolean);
+    return `✅ Completado${values.length ? ` · ${values.join(" · ")}` : ""}`;
+  }
+  return latest ? `${latest.date} · ${latest.reps || "sin reps"} · ${latest.weight || "sin peso"}` : "Sin registros previos";
 }
 
 function setSessionAddMode(mode) {
@@ -582,12 +597,16 @@ function updateDraft(exercise, patch) {
 }
 
 function updateSessionCount() {
-  const count = Array.from(drafts.values()).filter((draft) => hasWorkoutInput(draft)).length;
+  const count = Array.from(drafts.values()).filter((draft) => isExerciseComplete(draft)).length;
   els.sessionCount.textContent = count;
 }
 
 function hasWorkoutInput(draft) {
   return [draft.reps, draft.weight, draft.notes].some((value) => String(value || "").trim());
+}
+
+function isExerciseComplete(draft) {
+  return draft?.completed === true;
 }
 
 function restoreSessionDraft() {
@@ -609,7 +628,9 @@ function saveSessionDraft() {
   window.clearTimeout(draftSaveTimer);
   draftSaveTimer = window.setTimeout(() => {
     const draftEntries = Object.fromEntries(
-      Array.from(drafts.entries()).filter(([, draft]) => hasWorkoutInput(draft) || draft.decision !== "hold"),
+      Array.from(drafts.entries()).filter(
+        ([, draft]) => hasWorkoutInput(draft) || draft.decision !== "hold" || isExerciseComplete(draft),
+      ),
     );
     if (!Object.keys(draftEntries).length && !sessionExercises.length) {
       localStorage.removeItem(DRAFT_KEY);
