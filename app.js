@@ -1,4 +1,6 @@
 const STORAGE_KEY = "registro-gym-state-v1";
+const SEED_VERSION = window.REGISTRO_GYM_SEED_VERSION || "manual-seed-v1";
+const IMPORTED_HISTORY = window.REGISTRO_GYM_IMPORTED_HISTORY || [];
 
 const seed = {
   settings: {
@@ -16,7 +18,7 @@ const seed = {
       "Remo sentado (máquina)",
       "Landmine press / Press hombro sentado",
       "Elevaciones laterales",
-      "Cardio (8-10 min RPE 6-7)",
+      "Cardio (8–10 min RPE 6–7)",
     ],
     "Lower A": [
       "Glute bridge (calentamiento)",
@@ -28,7 +30,7 @@ const seed = {
       "Curl femoral (máquina)",
       "Gemelos (variación disponible)",
       "Pallof press",
-      "Cardio (8-12 min RPE 6-7)",
+      "Cardio (8–12 min RPE 6–7)",
       "Peso corporal",
     ],
     "Upper B": [
@@ -41,7 +43,7 @@ const seed = {
       "Elevaciones laterales",
       "Pressdown",
       "Kickback mancuerna",
-      "Cardio (8-10 min RPE 6-7)",
+      "Cardio (8–10 min RPE 6–7)",
     ],
     "Lower B": [
       "Glute bridge (calentamiento)",
@@ -53,10 +55,10 @@ const seed = {
       "Gemelos (variación disponible)",
       "Pallof press / Side plank",
       "Suitcase carry",
-      "Cardio (8-12 min RPE 6-7)",
+      "Cardio (8–12 min RPE 6–7)",
     ],
   },
-  history: [
+  history: IMPORTED_HISTORY.length ? IMPORTED_HISTORY : [
     entry("2026-06-19", "Upper A", "Dead Bug (core)", "3*20", "7.5", "hold"),
     entry("2026-06-19", "Upper A", "Face Pull", "2*20", "50", "hold"),
     entry("2026-06-19", "Upper A", "Press inclinado con mancuernas", "4*10", "22.3", "hold"),
@@ -181,18 +183,43 @@ function loadState() {
   if (!stored) return structuredClone(seed);
   try {
     const parsed = JSON.parse(stored);
-    return {
+    const merged = {
       ...structuredClone(seed),
       ...parsed,
       settings: { ...seed.settings, ...(parsed.settings || {}) },
     };
+    if (parsed.seedVersion !== SEED_VERSION) {
+      merged.history = mergeHistory(parsed.history || [], seed.history || []);
+      merged.seedVersion = SEED_VERSION;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    }
+    return merged;
   } catch {
     return structuredClone(seed);
   }
 }
 
 function saveState() {
+  state.seedVersion = SEED_VERSION;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function mergeHistory(userHistory, importedHistory) {
+  const seen = new Set();
+  return [...userHistory, ...importedHistory]
+    .filter((item) => {
+      const key = historyKey(item);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function historyKey(item) {
+  return [item.date, item.routine, item.exercise, item.reps, item.weight, item.notes]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .join("|");
 }
 
 function bindEvents() {
@@ -398,7 +425,7 @@ function openExerciseModal(exercise) {
           <span>${escapeHtml(item.routine || currentRoutine)}</span>
         </div>
         <div class="timeline-main">
-          <strong>${escapeHtml(item.weight || "-")} kg</strong>
+          <strong>${escapeHtml(formatWeight(item.weight))}</strong>
           <span>${escapeHtml(item.reps || "-")}</span>
           ${item.notes ? `<small>${escapeHtml(item.notes)}</small>` : ""}
         </div>
@@ -630,6 +657,11 @@ function formatShortDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   const [year, month, day] = value.split("-");
   return `${day}/${month}/${year.slice(2)}`;
+}
+
+function formatWeight(value) {
+  const cleanValue = String(value || "").trim();
+  return cleanValue ? `${cleanValue} kg` : "-";
 }
 
 function showToast(message) {
