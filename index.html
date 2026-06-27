@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#101313" />
     <title>Registro Gym</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=20260627-structured-sets" />
+    <link rel="stylesheet" href="./styles.css?v=20260627-workout-flow" />
   </head>
   <body>
     <div class="app-shell">
@@ -34,15 +34,7 @@
                 <span>Rutina</span>
                 <select id="routineSelect"></select>
               </label>
-              <label>
-                <span>Duración</span>
-                <input id="sessionDuration" inputmode="numeric" placeholder="min" />
-              </label>
             </div>
-            <label class="session-notes-field">
-              <span>Notas generales</span>
-              <textarea id="sessionNotes" rows="2" placeholder="Energía, molestias, cambios generales..."></textarea>
-            </label>
             <div class="session-summary">
               <strong id="sessionCount">0</strong>
               <span>ejercicios listos</span>
@@ -230,7 +222,7 @@
         <div class="exercise-timeline" id="exerciseTimeline"></div>
       </section>
     </div>
-    <script src="./seed-history.js?v=20260627-structured-sets"></script>
-    <script src="./app.js?v=20260627-structured-sets"></script>
+    <script src="./seed-history.js?v=20260627-workout-flow"></script>
+    <script src="./app.js?v=20260627-workout-flow"></script>
   </body>
 </html>

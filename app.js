@@ -141,8 +141,6 @@ const els = {
   routineStrip: document.querySelector("#routineStrip"),
   routineSelect: document.querySelector("#routineSelect"),
   sessionDate: document.querySelector("#sessionDate"),
-  sessionDuration: document.querySelector("#sessionDuration"),
-  sessionNotes: document.querySelector("#sessionNotes"),
   sessionCount: document.querySelector("#sessionCount"),
   exerciseList: document.querySelector("#exerciseList"),
   template: document.querySelector("#exerciseCardTemplate"),
@@ -259,8 +257,6 @@ function bindEvents() {
   });
 
   els.sessionDate.addEventListener("change", saveSessionDraft);
-  els.sessionDuration.addEventListener("input", saveSessionDraft);
-  els.sessionNotes.addEventListener("input", saveSessionDraft);
   els.saveSessionButton.addEventListener("click", saveSession);
   els.addForTodayButton.addEventListener("click", () => setSessionAddMode("today"));
   els.addToRoutineButton.addEventListener("click", () => setSessionAddMode("routine"));
@@ -370,7 +366,7 @@ function renderWorkout() {
     card.classList.toggle("is-complete", completed);
     card.dataset.exercise = exercise;
     card.querySelector(".exercise-name").textContent = exercise;
-    card.querySelector(".exercise-stats").textContent = getExerciseCardStats(draft, latest);
+    setExerciseStats(card.querySelector(".exercise-stats"), draft, latest);
     card.querySelector(".last-pill").textContent = latest ? `Último ${latest.weight || "-"} kg` : "Sin último peso";
     card.querySelector(".best-pill").textContent = best ? `Mejor ${best} kg` : "Sin mejor peso";
     card.querySelector(".suggest-pill").textContent = suggestion ? `Sugerido ${suggestion} kg` : "Sin sugerencia";
@@ -393,12 +389,15 @@ function renderWorkout() {
       button.addEventListener("click", () => {
         updateDraft(exercise, { decision: button.dataset.decision, completed: true });
         card.classList.add("is-complete");
-        card.querySelector(".exercise-stats").textContent = getExerciseCardStats(
+        setExerciseStats(
+          card.querySelector(".exercise-stats"),
           { ...(drafts.get(exercise) || {}), decision: button.dataset.decision, completed: true },
           latest,
         );
         card.querySelectorAll(".decision-button").forEach((item) => item.classList.remove("is-selected"));
         button.classList.add("is-selected");
+        card.classList.remove("is-open");
+        card.nextElementSibling?.classList.add("is-open");
       });
     });
 
@@ -415,15 +414,23 @@ function getWorkoutExercises() {
   return uniqueExercises([...(state.routines[currentRoutine] || []), ...sessionExercises]);
 }
 
-function getExerciseCardStats(draft, latest) {
+function setExerciseStats(element, draft, latest) {
+  element.innerHTML = getExerciseCardStatsHtml(draft, latest);
+}
+
+function getExerciseCardStatsHtml(draft, latest) {
   if (isExerciseComplete(draft)) {
     const reps = formatDraftReps(draft);
     const weight = clean(draft.weight);
-    const values = [reps, weight ? `${weight} kg` : "", decisionText(draft.decision)].filter(Boolean);
-    return `✅ Completado${values.length ? ` · ${values.join(" · ")}` : ""}`;
+    const values = [reps, weight ? `${weight} kg` : ""].filter(Boolean).map(escapeHtml);
+    return [
+      `<span class="complete-label">✓ Completado</span>`,
+      `<span class="status-badge status-${draft.decision || "hold"}">${escapeHtml(decisionText(draft.decision))}</span>`,
+      values.length ? `<span>${values.join(" · ")}</span>` : "",
+    ].filter(Boolean).join(" ");
   }
   return latest
-    ? `${latest.date} · ${formatHistoryReps(latest) || "sin reps"} · ${latest.weight || "sin peso"}`
+    ? `${escapeHtml(formatLongDate(latest.date))} · ${escapeHtml(formatHistoryReps(latest) || "sin reps")} · ${escapeHtml(latest.weight || "sin peso")}`
     : "Sin registros previos";
 }
 
@@ -452,7 +459,7 @@ function renderPreviousSummary(card, latest) {
     return;
   }
   const parts = [
-    formatShortDate(latest.date),
+    formatLongDate(latest.date),
     latest.weight ? `${latest.weight} kg` : "sin peso",
     formatHistoryReps(latest) || "sin reps",
   ];
@@ -742,8 +749,6 @@ function restoreSessionDraft() {
     if (!stored || typeof stored !== "object") return;
     if (stored.routine && state.routines[stored.routine]) currentRoutine = stored.routine;
     if (stored.date) els.sessionDate.value = stored.date;
-    if (stored.duration) els.sessionDuration.value = stored.duration;
-    if (stored.sessionNotes) els.sessionNotes.value = stored.sessionNotes;
     sessionExercises = Array.isArray(stored.sessionExercises) ? uniqueExercises(stored.sessionExercises) : [];
     Object.entries(stored.drafts || {}).forEach(([exercise, draft]) => {
       if (draft && typeof draft === "object") drafts.set(exercise, draft);
@@ -761,9 +766,7 @@ function saveSessionDraft() {
         ([, draft]) => hasWorkoutInput(draft) || draft.decision !== "hold" || isExerciseComplete(draft),
       ),
     );
-    const duration = clean(els.sessionDuration.value);
-    const sessionNotes = clean(els.sessionNotes.value);
-    if (!Object.keys(draftEntries).length && !sessionExercises.length && !duration && !sessionNotes) {
+    if (!Object.keys(draftEntries).length && !sessionExercises.length) {
       localStorage.removeItem(DRAFT_KEY);
       return;
     }
@@ -772,8 +775,6 @@ function saveSessionDraft() {
       JSON.stringify({
         date: els.sessionDate.value || today(),
         routine: currentRoutine,
-        duration,
-        sessionNotes,
         sessionExercises,
         drafts: draftEntries,
         updatedAt: new Date().toISOString(),
@@ -789,8 +790,6 @@ function clearSessionDraft() {
 
 function saveSession() {
   const sessionDate = els.sessionDate.value || today();
-  const sessionDuration = clean(els.sessionDuration.value);
-  const sessionNotes = clean(els.sessionNotes.value);
   const rows = Array.from(drafts.entries())
     .map(([exercise, draft]) => ({ exercise, draft }))
     .filter(({ draft }) => hasWorkoutInput(draft));
@@ -814,8 +813,6 @@ function saveSession() {
       {
         sets,
         legacyReps: sets.length ? clean(draft.legacyReps) : clean(draft.legacyReps || draft.reps),
-        sessionDuration,
-        sessionNotes,
       },
     );
   });
@@ -827,14 +824,10 @@ function saveSession() {
   const summary = buildWorkoutSummary(savedRows, {
     routine: currentRoutine,
     date: sessionDate,
-    duration: sessionDuration,
-    sessionNotes,
   });
 
   drafts.clear();
   sessionExercises = [];
-  els.sessionDuration.value = "";
-  els.sessionNotes.value = "";
   clearSessionDraft();
   saveState();
   renderWorkout();
@@ -1068,12 +1061,8 @@ function formatSetsReps(sets) {
 }
 
 function buildWorkoutSummary(rows, session) {
-  const header = [
-    `${session.routine} · ${session.date}`,
-    session.duration ? `Duración: ${session.duration} min` : "",
-    session.sessionNotes ? `Notas generales: ${session.sessionNotes}` : "",
-  ].filter(Boolean);
-  const table = ["Ejercicio | Peso | Series | Reps | Notas"];
+  const header = [`${session.routine} · ${session.date}`];
+  const table = ["Ejercicio | Peso | Series | Reps | Estado | Notas"];
   rows.forEach((row) => {
     const sets = getHistorySets(row);
     table.push(
@@ -1082,6 +1071,7 @@ function buildWorkoutSummary(rows, session) {
         row.weight || "-",
         sets.length || "-",
         formatHistoryReps(row) || "-",
+        decisionText(row.decision),
         row.notes || row.legacyReps || "-",
       ].join(" | "),
     );
@@ -1129,8 +1119,6 @@ function exportCsv() {
     "Notas",
     "Decision",
     "Reps antiguas",
-    "Duracion",
-    "Notas generales",
   ];
   const rows = state.history
     .slice()
@@ -1148,8 +1136,6 @@ function exportCsv() {
         item.notes,
         decisionText(item.decision),
         item.legacyReps || (!sets.length ? item.reps : ""),
-        item.sessionDuration,
-        item.sessionNotes,
       ];
     });
   download("registro-gym.csv", [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n"), "text/csv");
@@ -1174,8 +1160,6 @@ function importJson(event) {
       els.emailSummaryEnabled.checked = Boolean(state.settings.emailSummaryEnabled);
       drafts.clear();
       sessionExercises = [];
-      els.sessionDuration.value = "";
-      els.sessionNotes.value = "";
       clearSessionDraft();
       renderRoutineControls();
       renderWorkout();
@@ -1252,6 +1236,13 @@ function formatShortDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   const [year, month, day] = value.split("-");
   return `${day}/${month}/${year.slice(2)}`;
+}
+
+function formatLongDate(value) {
+  if (!value) return "-";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const [year, month, day] = value.split("-");
+  return `${day}-${month}-${year}`;
 }
 
 function formatWeight(value) {

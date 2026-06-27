@@ -190,11 +190,7 @@ h2 {
 }
 
 .session-meta {
-  grid-template-columns: 1fr 1fr 0.72fr;
-}
-
-.session-notes-field {
-  grid-column: 1;
+  grid-template-columns: 1fr 1fr;
 }
 
 label span {
@@ -231,7 +227,7 @@ textarea:focus {
 .session-summary {
   display: grid;
   grid-column: 2;
-  grid-row: 1 / span 2;
+  grid-row: 1;
   min-width: 78px;
   place-items: center;
   border-radius: 8px;
@@ -284,6 +280,16 @@ textarea:focus {
 .exercise-card.is-complete .exercise-stats {
   color: #0e5d4a;
   font-weight: 800;
+}
+
+.exercise-stats .complete-label {
+  color: #0e5d4a;
+}
+
+.exercise-stats .status-badge {
+  display: inline-flex;
+  margin: 3px 4px 0;
+  vertical-align: middle;
 }
 
 .exercise-head {
