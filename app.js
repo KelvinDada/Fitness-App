@@ -151,6 +151,9 @@ const els = {
   importJsonInput: document.querySelector("#importJsonInput"),
   dumbbellStep: document.querySelector("#dumbbellStep"),
   machineStep: document.querySelector("#machineStep"),
+  exerciseModal: document.querySelector("#exerciseModal"),
+  modalTitle: document.querySelector("#modalTitle"),
+  exerciseTimeline: document.querySelector("#exerciseTimeline"),
   toast: document.querySelector("#toast"),
 };
 
@@ -209,6 +212,10 @@ function bindEvents() {
   els.exportCsvButton.addEventListener("click", exportCsv);
   els.exportJsonButton.addEventListener("click", exportJson);
   els.importJsonInput.addEventListener("change", importJson);
+  document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", closeExerciseModal));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeExerciseModal();
+  });
 
   [els.dumbbellStep, els.machineStep].forEach((input) => {
     input.addEventListener("change", () => {
@@ -278,6 +285,7 @@ function renderWorkout() {
     card.querySelector(".reps-input").value = draft.reps || "";
     card.querySelector(".weight-input").value = draft.weight || (suggestion || latest?.weight || "");
     card.querySelector(".notes-input").value = draft.notes || "";
+    card.querySelector(".history-button").addEventListener("click", () => openExerciseModal(exercise));
 
     const selectedDecision = draft.decision || "hold";
     card.querySelectorAll(".decision-button").forEach((button) => {
@@ -371,6 +379,45 @@ function renderHistory() {
     `;
     els.historyList.append(row);
   });
+}
+
+function openExerciseModal(exercise) {
+  els.modalTitle.textContent = exercise;
+  els.exerciseTimeline.innerHTML = "";
+  const rows = getExerciseTimeline(exercise);
+
+  if (!rows.length) {
+    els.exerciseTimeline.innerHTML = `<div class="timeline-empty">Todavía no hay registros para este ejercicio.</div>`;
+  } else {
+    rows.forEach((item) => {
+      const row = document.createElement("article");
+      row.className = "timeline-row";
+      row.innerHTML = `
+        <div class="timeline-date">
+          <strong>${escapeHtml(formatShortDate(item.date))}</strong>
+          <span>${escapeHtml(item.routine || currentRoutine)}</span>
+        </div>
+        <div class="timeline-main">
+          <strong>${escapeHtml(item.weight || "-")} kg</strong>
+          <span>${escapeHtml(item.reps || "-")}</span>
+          ${item.notes ? `<small>${escapeHtml(item.notes)}</small>` : ""}
+        </div>
+        <span class="status-badge status-${item.decision || "hold"}">${decisionText(item.decision)}</span>
+      `;
+      els.exerciseTimeline.append(row);
+    });
+  }
+
+  els.exerciseModal.classList.add("is-open");
+  els.exerciseModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+}
+
+function closeExerciseModal() {
+  if (!els.exerciseModal.classList.contains("is-open")) return;
+  els.exerciseModal.classList.remove("is-open");
+  els.exerciseModal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
 }
 
 function saveMetric() {
@@ -474,6 +521,15 @@ function getLatest(exercise) {
   return stat ? { ...stat, exercise, routine: "" } : undefined;
 }
 
+function getExerciseTimeline(exercise) {
+  const rows = state.history
+    .filter((item) => item.exercise === exercise)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  if (rows.length) return rows;
+  const stat = state.exerciseStats?.[exercise];
+  return stat ? [{ ...stat, exercise, routine: currentRoutine, decision: "hold", notes: "" }] : [];
+}
+
 function getBest(exercise) {
   const values = state.history
     .filter((item) => item.exercise === exercise)
@@ -567,6 +623,13 @@ function tidyNumber(value) {
 
 function today() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function formatShortDate(value) {
+  if (!value) return "-";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const [year, month, day] = value.split("-");
+  return `${day}/${month}/${year.slice(2)}`;
 }
 
 function showToast(message) {

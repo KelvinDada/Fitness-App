@@ -32,6 +32,10 @@ body {
     var(--paper);
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
 button,
 input,
 select,
@@ -296,6 +300,21 @@ textarea:focus {
   margin-bottom: 12px;
 }
 
+.history-button {
+  display: inline-flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: #fff;
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
 .pill {
   border-radius: 999px;
   padding: 7px 10px;
@@ -550,6 +569,120 @@ canvas {
   display: block;
 }
 
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: none;
+}
+
+.modal.is-open {
+  display: block;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(16, 19, 19, 0.48);
+}
+
+.modal-sheet {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  width: min(100%, 680px);
+  max-height: min(78vh, 720px);
+  margin: 0 auto;
+  border-radius: 8px 8px 0 0;
+  background: var(--paper);
+  box-shadow: 0 -24px 60px rgba(16, 19, 19, 0.24);
+  overflow: hidden;
+}
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.modal-head h2 {
+  margin-bottom: 0;
+  font-size: 1.08rem;
+  line-height: 1.2;
+}
+
+.modal-close {
+  width: 42px;
+  height: 42px;
+  box-shadow: none;
+  font-size: 1.35rem;
+}
+
+.exercise-timeline {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 12px 16px calc(18px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+}
+
+.timeline-row,
+.timeline-empty {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.timeline-row {
+  display: grid;
+  grid-template-columns: minmax(74px, 0.7fr) minmax(0, 1.4fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 12px;
+}
+
+.timeline-date strong,
+.timeline-date span,
+.timeline-main strong,
+.timeline-main span,
+.timeline-main small {
+  display: block;
+}
+
+.timeline-date strong {
+  font-size: 0.92rem;
+}
+
+.timeline-date span,
+.timeline-main span,
+.timeline-main small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.timeline-main strong {
+  margin-bottom: 3px;
+  font-size: 1rem;
+}
+
+.timeline-main small {
+  margin-top: 5px;
+}
+
+.timeline-empty {
+  padding: 16px;
+  color: var(--muted);
+  text-align: center;
+}
+
 @media (min-width: 620px) {
   .app-shell {
     padding-right: 24px;
@@ -574,5 +707,13 @@ canvas {
 
   .session-summary {
     min-height: 64px;
+  }
+
+  .timeline-row {
+    grid-template-columns: 1fr;
+  }
+
+  .timeline-row .status-badge {
+    justify-self: start;
   }
 }

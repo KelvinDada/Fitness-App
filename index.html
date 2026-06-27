@@ -141,6 +141,7 @@
             <span class="pill best-pill"></span>
             <span class="pill suggest-pill"></span>
           </div>
+          <button class="history-button" type="button">Ver historial</button>
           <div class="set-grid">
             <label>
               <span>Reps</span>
@@ -165,6 +166,19 @@
     </template>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="modal" id="exerciseModal" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal></div>
+      <section class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <header class="modal-head">
+          <div>
+            <p class="eyebrow">Historial</p>
+            <h2 id="modalTitle"></h2>
+          </div>
+          <button class="icon-button modal-close" type="button" data-close-modal aria-label="Cerrar" title="Cerrar">×</button>
+        </header>
+        <div class="exercise-timeline" id="exerciseTimeline"></div>
+      </section>
+    </div>
     <script src="./app.js"></script>
   </body>
 </html>
