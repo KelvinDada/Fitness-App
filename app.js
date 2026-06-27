@@ -313,7 +313,13 @@ function renderRoutineControls() {
     const chip = document.createElement("button");
     chip.className = `routine-chip${routine === currentRoutine ? " is-active" : ""}`;
     chip.type = "button";
-    chip.innerHTML = `<strong>${routine}</strong><span>${state.routines[routine].length} ejercicios</span>`;
+    const latestDate = getLatestRoutineDate(routine);
+    const exerciseCount = state.routines[routine].length;
+    chip.innerHTML = `
+      <strong>${escapeHtml(routine)}</strong>
+      <span>${latestDate ? `Última ${formatShortDate(latestDate)}` : "Sin registros"}</span>
+      <small>${exerciseCount} ${exerciseCount === 1 ? "ejercicio" : "ejercicios"}</small>
+    `;
     chip.addEventListener("click", () => {
       currentRoutine = routine;
       els.routineSelect.value = routine;
@@ -326,6 +332,13 @@ function renderRoutineControls() {
   });
 
   els.routineSelect.value = currentRoutine;
+}
+
+function getLatestRoutineDate(routine) {
+  return state.history
+    .filter((item) => item.routine === routine && item.date)
+    .map((item) => item.date)
+    .sort((a, b) => b.localeCompare(a))[0];
 }
 
 function renderWorkout() {
