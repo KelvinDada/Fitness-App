@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#101313" />
+    <title>Registro Gym</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Registro Gym</p>
+          <h1 id="screenTitle">Entreno</h1>
+        </div>
+        <button class="icon-button" id="exportCsvButton" type="button" aria-label="Exportar CSV" title="Exportar CSV">
+          <span aria-hidden="true">↓</span>
+        </button>
+      </header>
+
+      <main>
+        <section class="view is-active" id="workoutView" aria-labelledby="workoutTab">
+          <div class="routine-strip" id="routineStrip"></div>
+
+          <section class="session-panel">
+            <div class="session-meta">
+              <label>
+                <span>Fecha</span>
+                <input id="sessionDate" type="date" />
+              </label>
+              <label>
+                <span>Rutina</span>
+                <select id="routineSelect"></select>
+              </label>
+            </div>
+            <div class="session-summary">
+              <strong id="sessionCount">0</strong>
+              <span>series listas</span>
+            </div>
+          </section>
+
+          <div class="exercise-list" id="exerciseList"></div>
+
+          <div class="sticky-actions">
+            <button class="primary-button" id="saveSessionButton" type="button">Guardar entreno</button>
+          </div>
+        </section>
+
+        <section class="view" id="historyView" aria-labelledby="historyTab">
+          <div class="search-row">
+            <input id="historySearch" type="search" placeholder="Buscar ejercicio o rutina" />
+          </div>
+          <div class="history-list" id="historyList"></div>
+        </section>
+
+        <section class="view" id="progressView" aria-labelledby="progressTab">
+          <section class="metrics-panel">
+            <label>
+              <span>Fecha</span>
+              <input id="metricDate" type="date" />
+            </label>
+            <label>
+              <span>Peso corporal</span>
+              <input id="bodyWeightInput" inputmode="decimal" placeholder="kg" />
+            </label>
+            <label>
+              <span>Cintura</span>
+              <input id="waistInput" inputmode="decimal" placeholder="cm" />
+            </label>
+            <button class="secondary-button" id="saveMetricButton" type="button">Añadir medida</button>
+          </section>
+          <div class="chart-wrap">
+            <canvas id="bodyChart" width="720" height="360"></canvas>
+          </div>
+          <div class="metric-list" id="metricList"></div>
+        </section>
+
+        <section class="view" id="settingsView" aria-labelledby="settingsTab">
+          <section class="settings-panel">
+            <h2>Datos</h2>
+            <p>La app guarda todo en este navegador. Puedes sacar copia o restaurarla cuando cambies de móvil.</p>
+            <div class="settings-actions">
+              <button class="secondary-button" id="exportJsonButton" type="button">Exportar copia</button>
+              <label class="file-button">
+                Importar copia
+                <input id="importJsonInput" type="file" accept="application/json" />
+              </label>
+            </div>
+          </section>
+          <section class="settings-panel">
+            <h2>Progresión</h2>
+            <p>Marca “subir” cuando completes el rango con buena técnica. La siguiente vez verás una sugerencia automática.</p>
+            <div class="progression-grid">
+              <label>
+                <span>Subida mancuernas</span>
+                <input id="dumbbellStep" inputmode="decimal" />
+              </label>
+              <label>
+                <span>Subida máquina/barra</span>
+                <input id="machineStep" inputmode="decimal" />
+              </label>
+            </div>
+          </section>
+        </section>
+      </main>
+
+      <nav class="tabbar" aria-label="Navegación principal">
+        <button class="tab is-active" id="workoutTab" data-view="workoutView" type="button">
+          <span aria-hidden="true">＋</span>
+          <span>Entreno</span>
+        </button>
+        <button class="tab" id="historyTab" data-view="historyView" type="button">
+          <span aria-hidden="true">≡</span>
+          <span>Historial</span>
+        </button>
+        <button class="tab" id="progressTab" data-view="progressView" type="button">
+          <span aria-hidden="true">⌁</span>
+          <span>Progreso</span>
+        </button>
+        <button class="tab" id="settingsTab" data-view="settingsView" type="button">
+          <span aria-hidden="true">⚙</span>
+          <span>Ajustes</span>
+        </button>
+      </nav>
+    </div>
+
+    <template id="exerciseCardTemplate">
+      <article class="exercise-card">
+        <button class="exercise-head" type="button">
+          <span>
+            <strong class="exercise-name"></strong>
+            <small class="exercise-stats"></small>
+          </span>
+          <span class="chevron" aria-hidden="true">⌄</span>
+        </button>
+        <div class="exercise-body">
+          <div class="quick-stats">
+            <span class="pill last-pill"></span>
+            <span class="pill best-pill"></span>
+            <span class="pill suggest-pill"></span>
+          </div>
+          <div class="set-grid">
+            <label>
+              <span>Reps</span>
+              <input class="reps-input" placeholder="3*10" />
+            </label>
+            <label>
+              <span>Peso</span>
+              <input class="weight-input" inputmode="decimal" placeholder="kg" />
+            </label>
+          </div>
+          <label class="notes-field">
+            <span>Notas</span>
+            <textarea class="notes-input" rows="2" placeholder="RIR, técnica, molestias..."></textarea>
+          </label>
+          <div class="decision-row">
+            <button class="decision-button" data-decision="progress" type="button">Subir</button>
+            <button class="decision-button" data-decision="hold" type="button">Mantener</button>
+            <button class="decision-button" data-decision="deload" type="button">Bajar</button>
+          </div>
+        </div>
+      </article>
+    </template>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>
