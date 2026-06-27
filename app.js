@@ -129,9 +129,11 @@ const seed = {
 };
 
 let state = loadState();
-let currentRoutine = Object.keys(state.routines)[0];
+let currentRoutine = state.lastRoutine && state.routines[state.lastRoutine] ? state.lastRoutine : Object.keys(state.routines)[0];
 const drafts = new Map();
+let sessionExercises = [];
 let draftSaveTimer;
+let sessionAddMode = "today";
 
 const els = {
   screenTitle: document.querySelector("#screenTitle"),
@@ -142,6 +144,10 @@ const els = {
   exerciseList: document.querySelector("#exerciseList"),
   template: document.querySelector("#exerciseCardTemplate"),
   saveSessionButton: document.querySelector("#saveSessionButton"),
+  sessionExerciseInput: document.querySelector("#sessionExerciseInput"),
+  addForTodayButton: document.querySelector("#addForTodayButton"),
+  addToRoutineButton: document.querySelector("#addToRoutineButton"),
+  addSessionExerciseButton: document.querySelector("#addSessionExerciseButton"),
   historySearch: document.querySelector("#historySearch"),
   historyList: document.querySelector("#historyList"),
   metricDate: document.querySelector("#metricDate"),
@@ -158,6 +164,9 @@ const els = {
   exerciseModal: document.querySelector("#exerciseModal"),
   modalTitle: document.querySelector("#modalTitle"),
   exerciseTimeline: document.querySelector("#exerciseTimeline"),
+  newRoutineInput: document.querySelector("#newRoutineInput"),
+  createRoutineButton: document.querySelector("#createRoutineButton"),
+  routineManagerList: document.querySelector("#routineManagerList"),
   toast: document.querySelector("#toast"),
 };
 
@@ -174,6 +183,7 @@ function init() {
   renderWorkout();
   renderHistory();
   renderMetrics();
+  renderRoutineManager();
   bindEvents();
 }
 
@@ -207,6 +217,11 @@ function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+function persistCurrentRoutine() {
+  state.lastRoutine = currentRoutine;
+  saveState();
+}
+
 function mergeHistory(userHistory, importedHistory) {
   const seen = new Set();
   return [...userHistory, ...importedHistory]
@@ -232,6 +247,7 @@ function bindEvents() {
 
   els.routineSelect.addEventListener("change", () => {
     currentRoutine = els.routineSelect.value;
+    persistCurrentRoutine();
     saveSessionDraft();
     renderRoutineControls();
     renderWorkout();
@@ -239,11 +255,21 @@ function bindEvents() {
 
   els.sessionDate.addEventListener("change", saveSessionDraft);
   els.saveSessionButton.addEventListener("click", saveSession);
+  els.addForTodayButton.addEventListener("click", () => setSessionAddMode("today"));
+  els.addToRoutineButton.addEventListener("click", () => setSessionAddMode("routine"));
+  els.addSessionExerciseButton.addEventListener("click", addSessionExercise);
+  els.sessionExerciseInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") addSessionExercise();
+  });
   els.historySearch.addEventListener("input", renderHistory);
   els.saveMetricButton.addEventListener("click", saveMetric);
   els.exportCsvButton.addEventListener("click", exportCsv);
   els.exportJsonButton.addEventListener("click", exportJson);
   els.importJsonInput.addEventListener("change", importJson);
+  els.createRoutineButton.addEventListener("click", createRoutine);
+  els.newRoutineInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") createRoutine();
+  });
   document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", closeExerciseModal));
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeExerciseModal();
@@ -262,7 +288,13 @@ function bindEvents() {
 function switchView(viewId) {
   document.querySelectorAll(".view").forEach((view) => view.classList.toggle("is-active", view.id === viewId));
   document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("is-active", tab.dataset.view === viewId));
-  const titles = { workoutView: "Entreno", historyView: "Historial", progressView: "Progreso", settingsView: "Ajustes" };
+  const titles = {
+    workoutView: "Entreno",
+    historyView: "Historial",
+    progressView: "Progreso",
+    routinesView: "Rutinas",
+    settingsView: "Ajustes",
+  };
   els.screenTitle.textContent = titles[viewId];
   if (viewId === "progressView") drawChart();
 }
@@ -285,6 +317,7 @@ function renderRoutineControls() {
     chip.addEventListener("click", () => {
       currentRoutine = routine;
       els.routineSelect.value = routine;
+      persistCurrentRoutine();
       saveSessionDraft();
       renderRoutineControls();
       renderWorkout();
@@ -297,7 +330,7 @@ function renderRoutineControls() {
 
 function renderWorkout() {
   els.exerciseList.innerHTML = "";
-  const exercises = state.routines[currentRoutine] || [];
+  const exercises = getWorkoutExercises();
 
   exercises.forEach((exercise, index) => {
     const card = els.template.content.firstElementChild.cloneNode(true);
@@ -340,6 +373,195 @@ function renderWorkout() {
   updateSessionCount();
 }
 
+function getWorkoutExercises() {
+  return uniqueExercises([...(state.routines[currentRoutine] || []), ...sessionExercises]);
+}
+
+function setSessionAddMode(mode) {
+  sessionAddMode = mode;
+  els.addForTodayButton.classList.toggle("is-selected", mode === "today");
+  els.addToRoutineButton.classList.toggle("is-selected", mode === "routine");
+}
+
+function addSessionExercise() {
+  const exercise = cleanExerciseName(els.sessionExerciseInput.value);
+  if (!exercise) {
+    showToast("Escribe un ejercicio");
+    return;
+  }
+  const baseExercises = state.routines[currentRoutine] || [];
+  if (getWorkoutExercises().some((item) => sameName(item, exercise))) {
+    showToast("Ese ejercicio ya está en la sesión");
+    return;
+  }
+
+  if (sessionAddMode === "routine") {
+    state.routines[currentRoutine] = [...baseExercises, exercise];
+    saveState();
+    renderRoutineControls();
+    renderRoutineManager();
+  } else {
+    sessionExercises = uniqueExercises([...sessionExercises, exercise]);
+    saveSessionDraft();
+  }
+
+  els.sessionExerciseInput.value = "";
+  renderWorkout();
+  showToast(sessionAddMode === "routine" ? "Ejercicio guardado en rutina" : "Ejercicio añadido");
+}
+
+function createRoutine() {
+  const routine = cleanExerciseName(els.newRoutineInput.value);
+  if (!routine) {
+    showToast("Escribe una rutina");
+    return;
+  }
+  if (state.routines[routine]) {
+    showToast("Esa rutina ya existe");
+    return;
+  }
+  state.routines[routine] = [];
+  currentRoutine = routine;
+  persistCurrentRoutine();
+  els.newRoutineInput.value = "";
+  saveState();
+  saveSessionDraft();
+  renderRoutineControls();
+  renderWorkout();
+  renderRoutineManager();
+  showToast("Rutina creada");
+}
+
+function renderRoutineManager() {
+  els.routineManagerList.innerHTML = "";
+  Object.entries(state.routines).forEach(([routine, exercises]) => {
+    const card = document.createElement("article");
+    card.className = "routine-manager-card";
+    card.dataset.routine = routine;
+
+    const head = document.createElement("div");
+    head.className = "routine-manager-head";
+
+    const nameInput = document.createElement("input");
+    nameInput.value = routine;
+    nameInput.setAttribute("aria-label", `Nombre de ${routine}`);
+    nameInput.addEventListener("change", () => renameRoutine(routine, nameInput.value));
+
+    const deleteButton = document.createElement("button");
+    deleteButton.className = "small-icon-button";
+    deleteButton.type = "button";
+    deleteButton.title = "Eliminar rutina";
+    deleteButton.setAttribute("aria-label", `Eliminar ${routine}`);
+    deleteButton.textContent = "×";
+    deleteButton.addEventListener("click", () => deleteRoutine(routine));
+
+    head.append(nameInput, deleteButton);
+    card.append(head);
+
+    const list = document.createElement("div");
+    list.className = "routine-exercise-list";
+    exercises.forEach((exercise) => {
+      const row = document.createElement("div");
+      row.className = "routine-exercise-row";
+      row.innerHTML = `<span>${escapeHtml(exercise)}</span>`;
+      const removeButton = document.createElement("button");
+      removeButton.className = "small-icon-button";
+      removeButton.type = "button";
+      removeButton.title = "Quitar ejercicio";
+      removeButton.setAttribute("aria-label", `Quitar ${exercise}`);
+      removeButton.textContent = "×";
+      removeButton.addEventListener("click", () => removeExerciseFromRoutine(routine, exercise));
+      row.append(removeButton);
+      list.append(row);
+    });
+    card.append(list);
+
+    const addRow = document.createElement("div");
+    addRow.className = "routine-add-row";
+    const input = document.createElement("input");
+    input.placeholder = "Añadir ejercicio";
+    const addButton = document.createElement("button");
+    addButton.className = "secondary-button";
+    addButton.type = "button";
+    addButton.textContent = "Añadir";
+    const add = () => addExerciseToRoutine(routine, input);
+    addButton.addEventListener("click", add);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") add();
+    });
+    addRow.append(input, addButton);
+    card.append(addRow);
+
+    els.routineManagerList.append(card);
+  });
+}
+
+function renameRoutine(oldName, rawName) {
+  const newName = cleanExerciseName(rawName);
+  if (!newName || newName === oldName) {
+    renderRoutineManager();
+    return;
+  }
+  if (state.routines[newName]) {
+    showToast("Esa rutina ya existe");
+    renderRoutineManager();
+    return;
+  }
+  const nextRoutines = {};
+  Object.entries(state.routines).forEach(([routine, exercises]) => {
+    nextRoutines[routine === oldName ? newName : routine] = exercises;
+  });
+  state.routines = nextRoutines;
+  if (currentRoutine === oldName) currentRoutine = newName;
+  persistCurrentRoutine();
+  saveState();
+  saveSessionDraft();
+  renderRoutineControls();
+  renderWorkout();
+  renderRoutineManager();
+  showToast("Rutina renombrada");
+}
+
+function deleteRoutine(routine) {
+  if (Object.keys(state.routines).length <= 1) {
+    showToast("Debe quedar una rutina");
+    return;
+  }
+  delete state.routines[routine];
+  if (currentRoutine === routine) currentRoutine = Object.keys(state.routines)[0];
+  persistCurrentRoutine();
+  saveState();
+  saveSessionDraft();
+  renderRoutineControls();
+  renderWorkout();
+  renderRoutineManager();
+  showToast("Rutina eliminada");
+}
+
+function addExerciseToRoutine(routine, input) {
+  const exercise = cleanExerciseName(input.value);
+  if (!exercise) return;
+  if ((state.routines[routine] || []).some((item) => sameName(item, exercise))) {
+    showToast("Ese ejercicio ya existe");
+    return;
+  }
+  state.routines[routine] = [...(state.routines[routine] || []), exercise];
+  input.value = "";
+  saveState();
+  if (routine === currentRoutine) renderWorkout();
+  renderRoutineControls();
+  renderRoutineManager();
+  showToast("Ejercicio añadido");
+}
+
+function removeExerciseFromRoutine(routine, exercise) {
+  state.routines[routine] = (state.routines[routine] || []).filter((item) => item !== exercise);
+  saveState();
+  if (routine === currentRoutine) renderWorkout();
+  renderRoutineControls();
+  renderRoutineManager();
+}
+
 function updateDraft(exercise, patch) {
   drafts.set(exercise, { ...(drafts.get(exercise) || { decision: "hold" }), ...patch });
   updateSessionCount();
@@ -361,6 +583,7 @@ function restoreSessionDraft() {
     if (!stored || typeof stored !== "object") return;
     if (stored.routine && state.routines[stored.routine]) currentRoutine = stored.routine;
     if (stored.date) els.sessionDate.value = stored.date;
+    sessionExercises = Array.isArray(stored.sessionExercises) ? uniqueExercises(stored.sessionExercises) : [];
     Object.entries(stored.drafts || {}).forEach(([exercise, draft]) => {
       if (draft && typeof draft === "object") drafts.set(exercise, draft);
     });
@@ -375,7 +598,7 @@ function saveSessionDraft() {
     const draftEntries = Object.fromEntries(
       Array.from(drafts.entries()).filter(([, draft]) => hasWorkoutInput(draft) || draft.decision !== "hold"),
     );
-    if (!Object.keys(draftEntries).length) {
+    if (!Object.keys(draftEntries).length && !sessionExercises.length) {
       localStorage.removeItem(DRAFT_KEY);
       return;
     }
@@ -384,6 +607,7 @@ function saveSessionDraft() {
       JSON.stringify({
         date: els.sessionDate.value || today(),
         routine: currentRoutine,
+        sessionExercises,
         drafts: draftEntries,
         updatedAt: new Date().toISOString(),
       }),
@@ -421,6 +645,7 @@ function saveSession() {
   });
 
   drafts.clear();
+  sessionExercises = [];
   clearSessionDraft();
   saveState();
   renderWorkout();
@@ -648,13 +873,16 @@ function importJson(event) {
     try {
       const parsed = JSON.parse(reader.result);
       state = { ...structuredClone(seed), ...parsed, settings: { ...seed.settings, ...(parsed.settings || {}) } };
-      saveState();
-      currentRoutine = Object.keys(state.routines)[0];
+      currentRoutine = state.lastRoutine && state.routines[state.lastRoutine] ? state.lastRoutine : Object.keys(state.routines)[0];
+      persistCurrentRoutine();
       drafts.clear();
+      sessionExercises = [];
+      clearSessionDraft();
       renderRoutineControls();
       renderWorkout();
       renderHistory();
       renderMetrics();
+      renderRoutineManager();
       showToast("Copia importada");
     } catch {
       showToast("No pude importar ese archivo");
@@ -685,6 +913,25 @@ function decisionText(decision) {
 
 function clean(value) {
   return String(value || "").trim();
+}
+
+function cleanExerciseName(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function sameName(a, b) {
+  return cleanExerciseName(a).toLowerCase() === cleanExerciseName(b).toLowerCase();
+}
+
+function uniqueExercises(items) {
+  const seen = new Set();
+  return items.map(cleanExerciseName).filter((item) => {
+    if (!item) return false;
+    const key = item.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function toNumber(value) {

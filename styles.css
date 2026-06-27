@@ -157,7 +157,9 @@ h2 {
 
 .session-panel,
 .metrics-panel,
-.settings-panel {
+.settings-panel,
+.add-exercise-panel,
+.routine-manager-card {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.86);
@@ -234,7 +236,8 @@ textarea:focus {
 
 .exercise-list,
 .history-list,
-.metric-list {
+.metric-list,
+.routine-manager-list {
   display: grid;
   gap: 10px;
 }
@@ -345,6 +348,19 @@ textarea:focus {
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin-top: 10px;
+}
+
+.add-exercise-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.add-mode-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
 .decision-button {
@@ -502,6 +518,66 @@ canvas {
   gap: 10px;
 }
 
+.routine-create-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+.routine-manager-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.routine-manager-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.routine-exercise-list {
+  display: grid;
+  gap: 6px;
+}
+
+.routine-exercise-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 8px 8px 10px;
+  background: #fff;
+}
+
+.routine-exercise-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.88rem;
+  line-height: 1.25;
+}
+
+.small-icon-button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: #fff;
+  font-weight: 900;
+}
+
+.routine-add-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
 .file-button input {
   display: none;
 }
@@ -513,7 +589,7 @@ canvas {
   left: 0;
   z-index: 10;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 4px;
   width: min(100%, 680px);
   margin: 0 auto;
@@ -532,7 +608,7 @@ canvas {
   border-radius: 8px;
   color: var(--muted);
   background: transparent;
-  font-size: 0.74rem;
+  font-size: 0.68rem;
   font-weight: 800;
 }
 
@@ -701,7 +777,10 @@ canvas {
   .session-panel,
   .session-meta,
   .settings-actions,
-  .progression-grid {
+  .progression-grid,
+  .routine-create-row,
+  .routine-manager-head,
+  .routine-add-row {
     grid-template-columns: 1fr;
   }
 

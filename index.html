@@ -43,6 +43,18 @@
 
           <div class="exercise-list" id="exerciseList"></div>
 
+          <section class="add-exercise-panel">
+            <label>
+              <span>Ejercicio extra</span>
+              <input id="sessionExerciseInput" placeholder="Nombre del ejercicio" />
+            </label>
+            <div class="add-mode-row">
+              <button class="decision-button is-selected" id="addForTodayButton" type="button">Solo hoy</button>
+              <button class="decision-button" id="addToRoutineButton" type="button">Guardar rutina</button>
+            </div>
+            <button class="secondary-button" id="addSessionExerciseButton" type="button">Añadir ejercicio</button>
+          </section>
+
           <div class="sticky-actions">
             <button class="primary-button" id="saveSessionButton" type="button">Guardar entreno</button>
           </div>
@@ -75,6 +87,17 @@
             <canvas id="bodyChart" width="720" height="360"></canvas>
           </div>
           <div class="metric-list" id="metricList"></div>
+        </section>
+
+        <section class="view" id="routinesView" aria-labelledby="routinesTab">
+          <section class="settings-panel">
+            <h2>Nueva rutina</h2>
+            <div class="routine-create-row">
+              <input id="newRoutineInput" placeholder="Nombre de rutina" />
+              <button class="secondary-button" id="createRoutineButton" type="button">Crear</button>
+            </div>
+          </section>
+          <div class="routine-manager-list" id="routineManagerList"></div>
         </section>
 
         <section class="view" id="settingsView" aria-labelledby="settingsTab">
@@ -118,6 +141,10 @@
         <button class="tab" id="progressTab" data-view="progressView" type="button">
           <span aria-hidden="true">⌁</span>
           <span>Progreso</span>
+        </button>
+        <button class="tab" id="routinesTab" data-view="routinesView" type="button">
+          <span aria-hidden="true">☷</span>
+          <span>Rutinas</span>
         </button>
         <button class="tab" id="settingsTab" data-view="settingsView" type="button">
           <span aria-hidden="true">⚙</span>
