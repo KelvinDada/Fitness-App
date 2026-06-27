@@ -1,4 +1,5 @@
 const STORAGE_KEY = "registro-gym-state-v1";
+const DRAFT_KEY = "registro-gym-session-draft-v1";
 const SEED_VERSION = window.REGISTRO_GYM_SEED_VERSION || "manual-seed-v1";
 const IMPORTED_HISTORY = window.REGISTRO_GYM_IMPORTED_HISTORY || [];
 
@@ -130,6 +131,7 @@ const seed = {
 let state = loadState();
 let currentRoutine = Object.keys(state.routines)[0];
 const drafts = new Map();
+let draftSaveTimer;
 
 const els = {
   screenTitle: document.querySelector("#screenTitle"),
@@ -162,7 +164,8 @@ const els = {
 init();
 
 function init() {
-  els.sessionDate.value = today();
+  restoreSessionDraft();
+  els.sessionDate.value ||= today();
   els.metricDate.value = today();
   els.dumbbellStep.value = state.settings.dumbbellStep;
   els.machineStep.value = state.settings.machineStep;
@@ -229,10 +232,12 @@ function bindEvents() {
 
   els.routineSelect.addEventListener("change", () => {
     currentRoutine = els.routineSelect.value;
+    saveSessionDraft();
     renderRoutineControls();
     renderWorkout();
   });
 
+  els.sessionDate.addEventListener("change", saveSessionDraft);
   els.saveSessionButton.addEventListener("click", saveSession);
   els.historySearch.addEventListener("input", renderHistory);
   els.saveMetricButton.addEventListener("click", saveMetric);
@@ -280,6 +285,7 @@ function renderRoutineControls() {
     chip.addEventListener("click", () => {
       currentRoutine = routine;
       els.routineSelect.value = routine;
+      saveSessionDraft();
       renderRoutineControls();
       renderWorkout();
     });
@@ -337,6 +343,7 @@ function renderWorkout() {
 function updateDraft(exercise, patch) {
   drafts.set(exercise, { ...(drafts.get(exercise) || { decision: "hold" }), ...patch });
   updateSessionCount();
+  saveSessionDraft();
 }
 
 function updateSessionCount() {
@@ -346,6 +353,47 @@ function updateSessionCount() {
 
 function hasWorkoutInput(draft) {
   return [draft.reps, draft.weight, draft.notes].some((value) => String(value || "").trim());
+}
+
+function restoreSessionDraft() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(DRAFT_KEY) || "{}");
+    if (!stored || typeof stored !== "object") return;
+    if (stored.routine && state.routines[stored.routine]) currentRoutine = stored.routine;
+    if (stored.date) els.sessionDate.value = stored.date;
+    Object.entries(stored.drafts || {}).forEach(([exercise, draft]) => {
+      if (draft && typeof draft === "object") drafts.set(exercise, draft);
+    });
+  } catch {
+    localStorage.removeItem(DRAFT_KEY);
+  }
+}
+
+function saveSessionDraft() {
+  window.clearTimeout(draftSaveTimer);
+  draftSaveTimer = window.setTimeout(() => {
+    const draftEntries = Object.fromEntries(
+      Array.from(drafts.entries()).filter(([, draft]) => hasWorkoutInput(draft) || draft.decision !== "hold"),
+    );
+    if (!Object.keys(draftEntries).length) {
+      localStorage.removeItem(DRAFT_KEY);
+      return;
+    }
+    localStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({
+        date: els.sessionDate.value || today(),
+        routine: currentRoutine,
+        drafts: draftEntries,
+        updatedAt: new Date().toISOString(),
+      }),
+    );
+  }, 150);
+}
+
+function clearSessionDraft() {
+  window.clearTimeout(draftSaveTimer);
+  localStorage.removeItem(DRAFT_KEY);
 }
 
 function saveSession() {
@@ -373,6 +421,7 @@ function saveSession() {
   });
 
   drafts.clear();
+  clearSessionDraft();
   saveState();
   renderWorkout();
   renderHistory();
