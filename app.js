@@ -349,9 +349,10 @@ function getLatestRoutineDate(routine) {
     .sort((a, b) => b.localeCompare(a))[0];
 }
 
-function renderWorkout() {
+function renderWorkout(openExercise = "") {
   els.exerciseList.innerHTML = "";
   const exercises = getWorkoutExercises();
+  const defaultOpenExercise = openExercise || exercises[0] || "";
 
   exercises.forEach((exercise, index) => {
     const card = els.template.content.firstElementChild.cloneNode(true);
@@ -362,7 +363,7 @@ function renderWorkout() {
     const sets = getDraftSets(draft, latest);
     const completed = isExerciseComplete(draft);
 
-    card.classList.toggle("is-open", index === 0);
+    card.classList.toggle("is-open", exercise === defaultOpenExercise);
     card.classList.toggle("is-complete", completed);
     card.dataset.exercise = exercise;
     card.querySelector(".exercise-name").textContent = exercise;
@@ -504,7 +505,7 @@ function updateSetReps(exercise, index, value) {
 function addSet(exercise, latest) {
   const draft = drafts.get(exercise) || { decision: "hold" };
   updateDraft(exercise, { sets: [...getDraftSets(draft, latest), { reps: "" }] });
-  renderWorkout();
+  renderWorkout(exercise);
 }
 
 function removeSet(exercise, latest) {
@@ -513,7 +514,7 @@ function removeSet(exercise, latest) {
   if (sets.length <= 1) return;
   const nextSets = sets.slice(0, -1);
   updateDraft(exercise, { sets: nextSets, reps: formatSetsReps(nextSets) });
-  renderWorkout();
+  renderWorkout(exercise);
 }
 
 function copyPreviousWorkout(exercise, latest) {
