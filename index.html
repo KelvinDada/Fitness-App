@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#101313" />
     <title>Registro Gym</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=20260627-completed-exercises" />
+    <link rel="stylesheet" href="./styles.css?v=20260627-structured-sets" />
   </head>
   <body>
     <div class="app-shell">
@@ -34,10 +34,18 @@
                 <span>Rutina</span>
                 <select id="routineSelect"></select>
               </label>
+              <label>
+                <span>Duración</span>
+                <input id="sessionDuration" inputmode="numeric" placeholder="min" />
+              </label>
             </div>
+            <label class="session-notes-field">
+              <span>Notas generales</span>
+              <textarea id="sessionNotes" rows="2" placeholder="Energía, molestias, cambios generales..."></textarea>
+            </label>
             <div class="session-summary">
               <strong id="sessionCount">0</strong>
-              <span>series listas</span>
+              <span>ejercicios listos</span>
             </div>
           </section>
 
@@ -126,6 +134,14 @@
               </label>
             </div>
           </section>
+          <section class="settings-panel">
+            <h2>Email resumen</h2>
+            <p>Después de guardar en este navegador, la app puede abrir un correo ya preparado para enviártelo.</p>
+            <label class="toggle-row">
+              <input id="emailSummaryEnabled" type="checkbox" />
+              <span>Abrir email resumen al guardar</span>
+            </label>
+          </section>
         </section>
       </main>
 
@@ -168,20 +184,28 @@
             <span class="pill best-pill"></span>
             <span class="pill suggest-pill"></span>
           </div>
-          <button class="history-button" type="button">Ver historial</button>
+          <div class="exercise-actions">
+            <button class="history-button" type="button">Ver historial</button>
+            <button class="copy-previous-button" type="button">Copiar anterior</button>
+          </div>
+          <div class="previous-summary"></div>
           <div class="set-grid">
-            <label>
-              <span>Reps</span>
-              <input class="reps-input" placeholder="3*10" />
-            </label>
             <label>
               <span>Peso</span>
               <input class="weight-input" inputmode="decimal" placeholder="kg" />
             </label>
           </div>
+          <div class="sets-panel">
+            <div class="sets-list"></div>
+            <div class="sets-actions">
+              <button class="small-action-button add-set-button" type="button">Añadir serie</button>
+              <button class="small-action-button remove-set-button" type="button">Quitar serie</button>
+            </div>
+          </div>
+          <div class="legacy-reps"></div>
           <label class="notes-field">
-            <span>Notas</span>
-            <textarea class="notes-input" rows="2" placeholder="RIR, técnica, molestias..."></textarea>
+            <span>Notas del ejercicio</span>
+            <textarea class="notes-input" rows="2" placeholder="Cambié de máquina, banco a 30°, última serie dura..."></textarea>
           </label>
           <div class="decision-row">
             <button class="decision-button" data-decision="progress" type="button">Subir</button>
@@ -206,7 +230,7 @@
         <div class="exercise-timeline" id="exerciseTimeline"></div>
       </section>
     </div>
-    <script src="./seed-history.js?v=20260627-completed-exercises"></script>
-    <script src="./app.js?v=20260627-completed-exercises"></script>
+    <script src="./seed-history.js?v=20260627-structured-sets"></script>
+    <script src="./app.js?v=20260627-structured-sets"></script>
   </body>
 </html>

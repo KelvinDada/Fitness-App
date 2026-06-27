@@ -7,6 +7,7 @@ const seed = {
   settings: {
     dumbbellStep: 2.5,
     machineStep: 5,
+    emailSummaryEnabled: false,
   },
   routines: {
     "Upper A": [
@@ -140,6 +141,8 @@ const els = {
   routineStrip: document.querySelector("#routineStrip"),
   routineSelect: document.querySelector("#routineSelect"),
   sessionDate: document.querySelector("#sessionDate"),
+  sessionDuration: document.querySelector("#sessionDuration"),
+  sessionNotes: document.querySelector("#sessionNotes"),
   sessionCount: document.querySelector("#sessionCount"),
   exerciseList: document.querySelector("#exerciseList"),
   template: document.querySelector("#exerciseCardTemplate"),
@@ -161,6 +164,7 @@ const els = {
   importJsonInput: document.querySelector("#importJsonInput"),
   dumbbellStep: document.querySelector("#dumbbellStep"),
   machineStep: document.querySelector("#machineStep"),
+  emailSummaryEnabled: document.querySelector("#emailSummaryEnabled"),
   exerciseModal: document.querySelector("#exerciseModal"),
   modalTitle: document.querySelector("#modalTitle"),
   exerciseTimeline: document.querySelector("#exerciseTimeline"),
@@ -178,6 +182,7 @@ function init() {
   els.metricDate.value = today();
   els.dumbbellStep.value = state.settings.dumbbellStep;
   els.machineStep.value = state.settings.machineStep;
+  els.emailSummaryEnabled.checked = Boolean(state.settings.emailSummaryEnabled);
 
   renderRoutineControls();
   renderWorkout();
@@ -187,8 +192,8 @@ function init() {
   bindEvents();
 }
 
-function entry(date, routine, exercise, reps, weight, decision, notes = "") {
-  return { id: crypto.randomUUID(), date, routine, exercise, reps, weight, decision, notes };
+function entry(date, routine, exercise, reps, weight, decision, notes = "", extras = {}) {
+  return { id: crypto.randomUUID(), date, routine, exercise, reps, weight, decision, notes, ...extras };
 }
 
 function loadState() {
@@ -254,6 +259,8 @@ function bindEvents() {
   });
 
   els.sessionDate.addEventListener("change", saveSessionDraft);
+  els.sessionDuration.addEventListener("input", saveSessionDraft);
+  els.sessionNotes.addEventListener("input", saveSessionDraft);
   els.saveSessionButton.addEventListener("click", saveSession);
   els.addForTodayButton.addEventListener("click", () => setSessionAddMode("today"));
   els.addToRoutineButton.addEventListener("click", () => setSessionAddMode("routine"));
@@ -282,6 +289,11 @@ function bindEvents() {
       saveState();
       renderWorkout();
     });
+  });
+
+  els.emailSummaryEnabled.addEventListener("change", () => {
+    state.settings.emailSummaryEnabled = els.emailSummaryEnabled.checked;
+    saveState();
   });
 }
 
@@ -351,6 +363,7 @@ function renderWorkout() {
     const best = getBest(exercise);
     const suggestion = getSuggestion(exercise);
     const draft = drafts.get(exercise) || {};
+    const sets = getDraftSets(draft, latest);
     const completed = isExerciseComplete(draft);
 
     card.classList.toggle("is-open", index === 0);
@@ -361,10 +374,18 @@ function renderWorkout() {
     card.querySelector(".last-pill").textContent = latest ? `Último ${latest.weight || "-"} kg` : "Sin último peso";
     card.querySelector(".best-pill").textContent = best ? `Mejor ${best} kg` : "Sin mejor peso";
     card.querySelector(".suggest-pill").textContent = suggestion ? `Sugerido ${suggestion} kg` : "Sin sugerencia";
-    card.querySelector(".reps-input").value = draft.reps || "";
-    card.querySelector(".weight-input").value = draft.weight || (suggestion || latest?.weight || "");
+    const weightInput = card.querySelector(".weight-input");
+    weightInput.value = draft.weight || "";
+    weightInput.placeholder = suggestion ? `Sugerido ${suggestion} kg` : latest?.weight ? `Último ${latest.weight} kg` : "kg";
     card.querySelector(".notes-input").value = draft.notes || "";
+    renderSetInputs(card, exercise, sets);
+    renderPreviousSummary(card, latest);
+    renderLegacyReps(card, draft);
     card.querySelector(".history-button").addEventListener("click", () => openExerciseModal(exercise));
+    card.querySelector(".copy-previous-button").disabled = !latest;
+    card.querySelector(".copy-previous-button").addEventListener("click", () => copyPreviousWorkout(exercise, latest));
+    card.querySelector(".add-set-button").addEventListener("click", () => addSet(exercise, latest));
+    card.querySelector(".remove-set-button").addEventListener("click", () => removeSet(exercise, latest));
 
     const selectedDecision = draft.decision || "hold";
     card.querySelectorAll(".decision-button").forEach((button) => {
@@ -382,8 +403,7 @@ function renderWorkout() {
     });
 
     card.querySelector(".exercise-head").addEventListener("click", () => card.classList.toggle("is-open"));
-    card.querySelector(".reps-input").addEventListener("input", (event) => updateDraft(exercise, { reps: event.target.value }));
-    card.querySelector(".weight-input").addEventListener("input", (event) => updateDraft(exercise, { weight: event.target.value }));
+    weightInput.addEventListener("input", (event) => updateDraft(exercise, { weight: event.target.value }));
     card.querySelector(".notes-input").addEventListener("input", (event) => updateDraft(exercise, { notes: event.target.value }));
     els.exerciseList.append(card);
   });
@@ -397,12 +417,118 @@ function getWorkoutExercises() {
 
 function getExerciseCardStats(draft, latest) {
   if (isExerciseComplete(draft)) {
-    const reps = clean(draft.reps);
+    const reps = formatDraftReps(draft);
     const weight = clean(draft.weight);
     const values = [reps, weight ? `${weight} kg` : "", decisionText(draft.decision)].filter(Boolean);
     return `✅ Completado${values.length ? ` · ${values.join(" · ")}` : ""}`;
   }
-  return latest ? `${latest.date} · ${latest.reps || "sin reps"} · ${latest.weight || "sin peso"}` : "Sin registros previos";
+  return latest
+    ? `${latest.date} · ${formatHistoryReps(latest) || "sin reps"} · ${latest.weight || "sin peso"}`
+    : "Sin registros previos";
+}
+
+function renderSetInputs(card, exercise, sets) {
+  const list = card.querySelector(".sets-list");
+  list.innerHTML = "";
+  sets.forEach((set, index) => {
+    const label = document.createElement("label");
+    label.className = "set-reps-row";
+    label.innerHTML = `
+      <span>Serie ${index + 1} reps</span>
+      <input class="set-reps-input" inputmode="numeric" value="${escapeHtml(set.reps || "")}" />
+    `;
+    label.querySelector(".set-reps-input").addEventListener("input", (event) => {
+      updateSetReps(exercise, index, event.target.value);
+    });
+    list.append(label);
+  });
+  card.querySelector(".remove-set-button").disabled = sets.length <= 1;
+}
+
+function renderPreviousSummary(card, latest) {
+  const summary = card.querySelector(".previous-summary");
+  if (!latest) {
+    summary.textContent = "Sin registro anterior para copiar.";
+    return;
+  }
+  const parts = [
+    formatShortDate(latest.date),
+    latest.weight ? `${latest.weight} kg` : "sin peso",
+    formatHistoryReps(latest) || "sin reps",
+  ];
+  summary.innerHTML = `
+    <strong>Anterior:</strong> ${escapeHtml(parts.join(" · "))}
+    ${latest.notes ? `<small>${escapeHtml(latest.notes)}</small>` : ""}
+  `;
+}
+
+function renderLegacyReps(card, draft) {
+  const legacy = clean(draft.legacyReps);
+  const box = card.querySelector(".legacy-reps");
+  box.hidden = !legacy;
+  box.innerHTML = legacy ? `<strong>Reps anteriores sin separar:</strong> ${escapeHtml(legacy)}` : "";
+}
+
+function getDraftSets(draft, latest) {
+  if (Array.isArray(draft.sets) && draft.sets.length) return normalizeSets(draft.sets);
+  const previousSets = getHistorySets(latest);
+  if (previousSets.length) return createEmptySets(previousSets.length);
+  return createEmptySets(3);
+}
+
+function normalizeSets(sets) {
+  return sets
+    .map((set) => (typeof set === "object" ? { reps: clean(set.reps) } : { reps: clean(set) }))
+    .filter((set, index) => index === 0 || set.reps || sets.length <= 6);
+}
+
+function createEmptySets(count) {
+  return Array.from({ length: Math.max(1, count) }, () => ({ reps: "" }));
+}
+
+function updateSetReps(exercise, index, value) {
+  const draft = drafts.get(exercise) || { decision: "hold" };
+  const latest = getLatest(exercise);
+  const sets = getDraftSets(draft, latest);
+  sets[index] = { reps: value };
+  updateDraft(exercise, { sets, reps: formatSetsReps(sets), legacyReps: "" });
+}
+
+function addSet(exercise, latest) {
+  const draft = drafts.get(exercise) || { decision: "hold" };
+  updateDraft(exercise, { sets: [...getDraftSets(draft, latest), { reps: "" }] });
+  renderWorkout();
+}
+
+function removeSet(exercise, latest) {
+  const draft = drafts.get(exercise) || { decision: "hold" };
+  const sets = getDraftSets(draft, latest);
+  if (sets.length <= 1) return;
+  const nextSets = sets.slice(0, -1);
+  updateDraft(exercise, { sets: nextSets, reps: formatSetsReps(nextSets) });
+  renderWorkout();
+}
+
+function copyPreviousWorkout(exercise, latest) {
+  if (!latest) return;
+  const draft = drafts.get(exercise) || {};
+  if (hasWorkoutInput(draft) || draft.decision !== undefined || isExerciseComplete(draft)) {
+    showToast("Borra este ejercicio antes de copiar el anterior");
+    return;
+  }
+  const previousSets = getHistorySets(latest);
+  const patch = {
+    weight: clean(latest.weight),
+    notes: clean(latest.notes),
+    sets: previousSets.length ? previousSets : createEmptySets(3),
+    reps: previousSets.length ? formatSetsReps(previousSets) : "",
+    legacyReps: previousSets.length ? "" : clean(latest.reps),
+    decision: "hold",
+  };
+  drafts.set(exercise, patch);
+  saveSessionDraft();
+  renderWorkout();
+  showToast("Anterior copiado");
 }
 
 function setSessionAddMode(mode) {
@@ -602,7 +728,8 @@ function updateSessionCount() {
 }
 
 function hasWorkoutInput(draft) {
-  return [draft.reps, draft.weight, draft.notes].some((value) => String(value || "").trim());
+  const hasSetReps = Array.isArray(draft.sets) && draft.sets.some((set) => clean(set?.reps || set));
+  return hasSetReps || [draft.reps, draft.legacyReps, draft.weight, draft.notes].some((value) => clean(value));
 }
 
 function isExerciseComplete(draft) {
@@ -615,6 +742,8 @@ function restoreSessionDraft() {
     if (!stored || typeof stored !== "object") return;
     if (stored.routine && state.routines[stored.routine]) currentRoutine = stored.routine;
     if (stored.date) els.sessionDate.value = stored.date;
+    if (stored.duration) els.sessionDuration.value = stored.duration;
+    if (stored.sessionNotes) els.sessionNotes.value = stored.sessionNotes;
     sessionExercises = Array.isArray(stored.sessionExercises) ? uniqueExercises(stored.sessionExercises) : [];
     Object.entries(stored.drafts || {}).forEach(([exercise, draft]) => {
       if (draft && typeof draft === "object") drafts.set(exercise, draft);
@@ -632,7 +761,9 @@ function saveSessionDraft() {
         ([, draft]) => hasWorkoutInput(draft) || draft.decision !== "hold" || isExerciseComplete(draft),
       ),
     );
-    if (!Object.keys(draftEntries).length && !sessionExercises.length) {
+    const duration = clean(els.sessionDuration.value);
+    const sessionNotes = clean(els.sessionNotes.value);
+    if (!Object.keys(draftEntries).length && !sessionExercises.length && !duration && !sessionNotes) {
       localStorage.removeItem(DRAFT_KEY);
       return;
     }
@@ -641,6 +772,8 @@ function saveSessionDraft() {
       JSON.stringify({
         date: els.sessionDate.value || today(),
         routine: currentRoutine,
+        duration,
+        sessionNotes,
         sessionExercises,
         drafts: draftEntries,
         updatedAt: new Date().toISOString(),
@@ -655,6 +788,9 @@ function clearSessionDraft() {
 }
 
 function saveSession() {
+  const sessionDate = els.sessionDate.value || today();
+  const sessionDuration = clean(els.sessionDuration.value);
+  const sessionNotes = clean(els.sessionNotes.value);
   const rows = Array.from(drafts.entries())
     .map(([exercise, draft]) => ({ exercise, draft }))
     .filter(({ draft }) => hasWorkoutInput(draft));
@@ -664,27 +800,47 @@ function saveSession() {
     return;
   }
 
-  rows.forEach(({ exercise, draft }) => {
-    state.history.unshift(
-      entry(
-        els.sessionDate.value || today(),
-        currentRoutine,
-        exercise,
-        clean(draft.reps),
-        clean(draft.weight),
-        draft.decision || "hold",
-        clean(draft.notes),
-      ),
+  const savedRows = rows.map(({ exercise, draft }) => {
+    const sets = normalizeSets(draft.sets || []).filter((set) => clean(set.reps));
+    const reps = sets.length ? formatSetsReps(sets) : clean(draft.reps || draft.legacyReps);
+    return entry(
+      sessionDate,
+      currentRoutine,
+      exercise,
+      reps,
+      clean(draft.weight),
+      draft.decision || "hold",
+      clean(draft.notes),
+      {
+        sets,
+        legacyReps: sets.length ? clean(draft.legacyReps) : clean(draft.legacyReps || draft.reps),
+        sessionDuration,
+        sessionNotes,
+      },
     );
+  });
+
+  savedRows.forEach((row) => {
+    state.history.unshift(row);
+  });
+
+  const summary = buildWorkoutSummary(savedRows, {
+    routine: currentRoutine,
+    date: sessionDate,
+    duration: sessionDuration,
+    sessionNotes,
   });
 
   drafts.clear();
   sessionExercises = [];
+  els.sessionDuration.value = "";
+  els.sessionNotes.value = "";
   clearSessionDraft();
   saveState();
   renderWorkout();
   renderHistory();
   showToast("Entreno guardado");
+  maybeOpenEmailSummary(summary, currentRoutine, sessionDate);
 }
 
 function renderHistory() {
@@ -710,7 +866,7 @@ function renderHistory() {
         </span>
         <span class="status-badge status-${item.decision || "hold"}">${decisionText(item.decision)}</span>
       </div>
-      <div class="history-detail">${escapeHtml(item.reps || "-")} · ${escapeHtml(item.weight || "-")} kg${item.notes ? ` · ${escapeHtml(item.notes)}` : ""}</div>
+      <div class="history-detail">${escapeHtml(formatHistoryReps(item) || "-")} · ${escapeHtml(item.weight || "-")} kg${item.notes ? ` · ${escapeHtml(item.notes)}` : ""}</div>
     `;
     els.historyList.append(row);
   });
@@ -734,7 +890,8 @@ function openExerciseModal(exercise) {
         </div>
         <div class="timeline-main">
           <strong>${escapeHtml(formatWeight(item.weight))}</strong>
-          <span>${escapeHtml(item.reps || "-")}</span>
+          <span>${escapeHtml(formatHistoryReps(item) || "-")}</span>
+          ${item.legacyReps ? `<small>Reps antiguas: ${escapeHtml(item.legacyReps)}</small>` : ""}
           ${item.notes ? `<small>${escapeHtml(item.notes)}</small>` : ""}
         </div>
         <span class="status-badge status-${item.decision || "hold"}">${decisionText(item.decision)}</span>
@@ -886,12 +1043,115 @@ function getSuggestion(exercise) {
   return tidyNumber(weight + step);
 }
 
+function getHistorySets(item) {
+  if (!item || !Array.isArray(item.sets)) return [];
+  return normalizeSets(item.sets).filter((set) => clean(set.reps));
+}
+
+function formatDraftReps(draft) {
+  const sets = normalizeSets(draft?.sets || []).filter((set) => clean(set.reps));
+  if (sets.length) return formatSetsReps(sets);
+  return clean(draft?.reps || draft?.legacyReps);
+}
+
+function formatHistoryReps(item) {
+  const sets = getHistorySets(item);
+  if (sets.length) return formatSetsReps(sets);
+  return clean(item?.reps || item?.legacyReps);
+}
+
+function formatSetsReps(sets) {
+  return normalizeSets(sets)
+    .map((set) => clean(set.reps))
+    .filter(Boolean)
+    .join(" / ");
+}
+
+function buildWorkoutSummary(rows, session) {
+  const header = [
+    `${session.routine} · ${session.date}`,
+    session.duration ? `Duración: ${session.duration} min` : "",
+    session.sessionNotes ? `Notas generales: ${session.sessionNotes}` : "",
+  ].filter(Boolean);
+  const table = ["Ejercicio | Peso | Series | Reps | Notas"];
+  rows.forEach((row) => {
+    const sets = getHistorySets(row);
+    table.push(
+      [
+        row.exercise,
+        row.weight || "-",
+        sets.length || "-",
+        formatHistoryReps(row) || "-",
+        row.notes || row.legacyReps || "-",
+      ].join(" | "),
+    );
+  });
+  const volume = estimateWorkoutVolume(rows);
+  if (volume) header.push(`Volumen total estimado: ${tidyNumber(volume)} kg`);
+  return [...header, "", ...table].join("\n");
+}
+
+function estimateWorkoutVolume(rows) {
+  return rows.reduce((total, row) => {
+    const weight = toNumber(row.weight);
+    const reps = getHistorySets(row).reduce((sum, set) => sum + toNumber(set.reps), 0);
+    return weight && reps ? total + weight * reps : total;
+  }, 0);
+}
+
+function maybeOpenEmailSummary(body, routine, date) {
+  if (!state.settings.emailSummaryEnabled) return;
+  const subject = `${routine} · ${date}`;
+  const mailto = `mailto:kelvinstarlin.feliz@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  if (mailto.length < 1800) {
+    window.location.href = mailto;
+    return;
+  }
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(body).then(
+      () => showToast("Resumen muy largo: copiado al portapapeles"),
+      () => showToast("Resumen muy largo: copia manual desde historial"),
+    );
+  } else {
+    showToast("Resumen muy largo para abrir email");
+  }
+}
+
 function exportCsv() {
-  const headers = ["Fecha (YYYY-MM-DD)", "Rutina", "Ejercicio", "Serie (opcional)", "Reps", "Peso", "Notas", "Decision"];
+  const headers = [
+    "Fecha (YYYY-MM-DD)",
+    "Rutina",
+    "Ejercicio",
+    "Serie (opcional)",
+    "Series",
+    "Reps",
+    "Peso",
+    "Notas",
+    "Decision",
+    "Reps antiguas",
+    "Duracion",
+    "Notas generales",
+  ];
   const rows = state.history
     .slice()
     .reverse()
-    .map((item) => [item.date, item.routine, item.exercise, "", item.reps, item.weight, item.notes, decisionText(item.decision)]);
+    .map((item) => {
+      const sets = getHistorySets(item);
+      return [
+        item.date,
+        item.routine,
+        item.exercise,
+        "",
+        sets.length || "",
+        formatHistoryReps(item),
+        item.weight,
+        item.notes,
+        decisionText(item.decision),
+        item.legacyReps || (!sets.length ? item.reps : ""),
+        item.sessionDuration,
+        item.sessionNotes,
+      ];
+    });
   download("registro-gym.csv", [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n"), "text/csv");
 }
 
@@ -909,8 +1169,13 @@ function importJson(event) {
       state = { ...structuredClone(seed), ...parsed, settings: { ...seed.settings, ...(parsed.settings || {}) } };
       currentRoutine = state.lastRoutine && state.routines[state.lastRoutine] ? state.lastRoutine : Object.keys(state.routines)[0];
       persistCurrentRoutine();
+      els.dumbbellStep.value = state.settings.dumbbellStep;
+      els.machineStep.value = state.settings.machineStep;
+      els.emailSummaryEnabled.checked = Boolean(state.settings.emailSummaryEnabled);
       drafts.clear();
       sessionExercises = [];
+      els.sessionDuration.value = "";
+      els.sessionNotes.value = "";
       clearSessionDraft();
       renderRoutineControls();
       renderWorkout();
