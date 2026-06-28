@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#101313" />
     <title>Registro Gym</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=20260628-mailto-fix" />
+    <link rel="stylesheet" href="./styles.css?v=20260628-calendar-view" />
   </head>
   <body>
     <div class="app-shell">
@@ -86,25 +86,18 @@
         </section>
 
         <section class="view" id="progressView" aria-labelledby="progressTab">
-          <section class="metrics-panel">
-            <label>
-              <span>Fecha</span>
-              <input id="metricDate" type="date" />
-            </label>
-            <label>
-              <span>Peso corporal</span>
-              <input id="bodyWeightInput" inputmode="decimal" placeholder="kg" />
-            </label>
-            <label>
-              <span>Cintura</span>
-              <input id="waistInput" inputmode="decimal" placeholder="cm" />
-            </label>
-            <button class="secondary-button" id="saveMetricButton" type="button">Añadir medida</button>
+          <section class="calendar-panel">
+            <div class="calendar-toolbar">
+              <button class="small-icon-button" id="prevMonthButton" type="button" aria-label="Mes anterior" title="Mes anterior">‹</button>
+              <label>
+                <span>Mes</span>
+                <input id="calendarMonthInput" type="month" />
+              </label>
+              <button class="small-icon-button" id="nextMonthButton" type="button" aria-label="Mes siguiente" title="Mes siguiente">›</button>
+            </div>
+            <div class="calendar-grid" id="calendarGrid" aria-label="Calendario mensual"></div>
           </section>
-          <div class="chart-wrap">
-            <canvas id="bodyChart" width="720" height="360"></canvas>
-          </div>
-          <div class="metric-list" id="metricList"></div>
+          <div class="month-workout-list" id="monthWorkoutList"></div>
         </section>
 
         <section class="view" id="routinesView" aria-labelledby="routinesTab">
@@ -166,7 +159,7 @@
         </button>
         <button class="tab" id="progressTab" data-view="progressView" type="button">
           <span aria-hidden="true">⌁</span>
-          <span>Progreso</span>
+          <span>Calendario</span>
         </button>
         <button class="tab" id="routinesTab" data-view="routinesView" type="button">
           <span aria-hidden="true">☷</span>
@@ -241,6 +234,6 @@
       </section>
     </div>
     <script src="./seed-history.js?v=20260628-mailto-fix"></script>
-    <script src="./app.js?v=20260628-mailto-fix"></script>
+    <script src="./app.js?v=20260628-calendar-view"></script>
   </body>
 </html>

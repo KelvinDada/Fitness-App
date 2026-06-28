@@ -163,12 +163,11 @@ const els = {
   addSessionExerciseButton: document.querySelector("#addSessionExerciseButton"),
   historySearch: document.querySelector("#historySearch"),
   historyList: document.querySelector("#historyList"),
-  metricDate: document.querySelector("#metricDate"),
-  bodyWeightInput: document.querySelector("#bodyWeightInput"),
-  waistInput: document.querySelector("#waistInput"),
-  saveMetricButton: document.querySelector("#saveMetricButton"),
-  metricList: document.querySelector("#metricList"),
-  bodyChart: document.querySelector("#bodyChart"),
+  calendarMonthInput: document.querySelector("#calendarMonthInput"),
+  prevMonthButton: document.querySelector("#prevMonthButton"),
+  nextMonthButton: document.querySelector("#nextMonthButton"),
+  calendarGrid: document.querySelector("#calendarGrid"),
+  monthWorkoutList: document.querySelector("#monthWorkoutList"),
   exportCsvButton: document.querySelector("#exportCsvButton"),
   exportJsonButton: document.querySelector("#exportJsonButton"),
   importJsonInput: document.querySelector("#importJsonInput"),
@@ -189,7 +188,7 @@ init();
 function init() {
   restoreSessionDraft();
   els.sessionDate.value ||= today();
-  els.metricDate.value = today();
+  els.calendarMonthInput.value = currentMonthValue();
   els.dumbbellStep.value = state.settings.dumbbellStep;
   els.machineStep.value = state.settings.machineStep;
   els.emailSummaryEnabled.checked = Boolean(state.settings.emailSummaryEnabled);
@@ -197,7 +196,7 @@ function init() {
   renderRoutineControls();
   renderWorkout();
   renderHistory();
-  renderMetrics();
+  renderCalendar();
   renderRoutineManager();
   bindEvents();
   updateSessionStartPanel();
@@ -300,7 +299,9 @@ function bindEvents() {
     if (event.key === "Enter") addSessionExercise();
   });
   els.historySearch.addEventListener("input", renderHistory);
-  els.saveMetricButton.addEventListener("click", saveMetric);
+  els.calendarMonthInput.addEventListener("change", renderCalendar);
+  els.prevMonthButton.addEventListener("click", () => changeCalendarMonth(-1));
+  els.nextMonthButton.addEventListener("click", () => changeCalendarMonth(1));
   els.exportCsvButton.addEventListener("click", exportCsv);
   els.exportJsonButton.addEventListener("click", exportJson);
   els.importJsonInput.addEventListener("change", importJson);
@@ -338,12 +339,12 @@ function switchView(viewId) {
   const titles = {
     workoutView: "Entreno",
     historyView: "Historial",
-    progressView: "Progreso",
+    progressView: "Calendario",
     routinesView: "Rutinas",
     settingsView: "Ajustes",
   };
   els.screenTitle.textContent = titles[viewId];
-  if (viewId === "progressView") drawChart();
+  if (viewId === "progressView") renderCalendar();
 }
 
 function renderRoutineControls() {
@@ -1206,96 +1207,91 @@ function closeExerciseModal() {
   document.body.classList.remove("modal-open");
 }
 
-function saveMetric() {
-  const weight = toNumber(els.bodyWeightInput.value);
-  const waist = toNumber(els.waistInput.value);
-  if (!weight && !waist) {
-    showToast("Añade peso corporal o cintura");
-    return;
+function renderCalendar() {
+  const monthValue = els.calendarMonthInput.value || currentMonthValue();
+  els.calendarMonthInput.value = monthValue;
+  const monthItems = getMonthWorkoutEntries(monthValue);
+  renderCalendarGrid(monthValue, monthItems);
+  renderMonthWorkoutList(monthItems);
+}
+
+function renderCalendarGrid(monthValue, monthItems) {
+  const [year, month] = monthValue.split("-").map(Number);
+  const firstDay = new Date(year, month - 1, 1);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const mondayOffset = (firstDay.getDay() + 6) % 7;
+  const activeDays = new Set(monthItems.map((item) => item.date.slice(-2)));
+  els.calendarGrid.innerHTML = "";
+
+  ["L", "M", "X", "J", "V", "S", "D"].forEach((day) => {
+    const cell = document.createElement("div");
+    cell.className = "calendar-weekday";
+    cell.textContent = day;
+    els.calendarGrid.append(cell);
+  });
+
+  Array.from({ length: mondayOffset }).forEach(() => {
+    const cell = document.createElement("div");
+    cell.className = "calendar-day is-empty";
+    els.calendarGrid.append(cell);
+  });
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const dayKey = String(day).padStart(2, "0");
+    const cell = document.createElement("div");
+    cell.className = `calendar-day${activeDays.has(dayKey) ? " is-active" : ""}`;
+    cell.textContent = day;
+    els.calendarGrid.append(cell);
   }
-  state.metrics.unshift({ date: els.metricDate.value || today(), weight: weight || "", waist: waist || "" });
-  saveState();
-  els.bodyWeightInput.value = "";
-  els.waistInput.value = "";
-  renderMetrics();
-  showToast("Medida guardada");
 }
 
-function renderMetrics() {
-  els.metricList.innerHTML = "";
-  state.metrics
-    .slice()
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .forEach((item) => {
-      const row = document.createElement("article");
-      row.className = "metric-item";
-      row.innerHTML = `
-        <strong>${escapeHtml(item.date)}</strong>
-        <span>${item.weight ? `${item.weight} kg` : "-"} · ${item.waist ? `${item.waist} cm` : "-"}</span>
-      `;
-      els.metricList.append(row);
-    });
-  drawChart();
-}
-
-function drawChart() {
-  const canvas = els.bodyChart;
-  const ctx = canvas.getContext("2d");
-  const data = state.metrics
-    .filter((item) => item.weight)
-    .slice()
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  if (data.length < 2) {
-    ctx.fillStyle = "#65706c";
-    ctx.font = "28px sans-serif";
-    ctx.fillText("Añade más medidas para ver tendencia", 40, 180);
+function renderMonthWorkoutList(items) {
+  els.monthWorkoutList.innerHTML = "";
+  if (!items.length) {
+    els.monthWorkoutList.innerHTML = `<article class="month-empty">No hay rutinas registradas en este mes.</article>`;
     return;
   }
 
-  const padding = 48;
-  const values = data.map((item) => Number(item.weight));
-  const min = Math.min(...values) - 0.5;
-  const max = Math.max(...values) + 0.5;
-  const width = canvas.width - padding * 2;
-  const height = canvas.height - padding * 2;
-
-  ctx.strokeStyle = "#d9ddd5";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(padding, padding);
-  ctx.lineTo(padding, padding + height);
-  ctx.lineTo(padding + width, padding + height);
-  ctx.stroke();
-
-  ctx.strokeStyle = "#1f7a64";
-  ctx.lineWidth = 5;
-  ctx.beginPath();
-  data.forEach((item, index) => {
-    const x = padding + (index / (data.length - 1)) * width;
-    const y = padding + height - ((Number(item.weight) - min) / (max - min)) * height;
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+  const table = document.createElement("div");
+  table.className = "month-table";
+  table.innerHTML = `<div class="month-table-head"><span>Fecha</span><span>Rutina</span></div>`;
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "month-table-row";
+    row.innerHTML = `<span>${escapeHtml(item.date)}</span><strong>${escapeHtml(item.routine || "-")}</strong>`;
+    table.append(row);
   });
-  ctx.stroke();
+  els.monthWorkoutList.append(table);
+}
 
-  data.forEach((item, index) => {
-    const x = padding + (index / (data.length - 1)) * width;
-    const y = padding + height - ((Number(item.weight) - min) / (max - min)) * height;
-    ctx.fillStyle = "#101313";
-    ctx.beginPath();
-    ctx.arc(x, y, 7, 0, Math.PI * 2);
-    ctx.fill();
+function getMonthWorkoutEntries(monthValue) {
+  const sessions = new Map();
+  state.history.forEach((item) => {
+    if (!isIsoDate(item.date) || !item.date.startsWith(`${monthValue}-`) || !item.routine) return;
+    const sessionToken = item.sessionStartedAt || item.routineFinishedAt || "";
+    const key = `${item.date}|${item.routine}|${sessionToken}`;
+    if (!sessions.has(key)) {
+      sessions.set(key, {
+        date: item.date,
+        routine: item.routine,
+        sessionStartedAt: item.sessionStartedAt || "",
+        routineFinishedAt: item.routineFinishedAt || "",
+      });
+    }
   });
+  return [...sessions.values()].sort(
+    (a, b) =>
+      b.date.localeCompare(a.date) ||
+      String(b.routineFinishedAt || b.sessionStartedAt).localeCompare(String(a.routineFinishedAt || a.sessionStartedAt)) ||
+      String(a.routine).localeCompare(String(b.routine)),
+  );
+}
 
-  ctx.fillStyle = "#65706c";
-  ctx.font = "24px sans-serif";
-  ctx.fillText(`${min.toFixed(1)} kg`, padding, padding + height + 32);
-  ctx.fillText(`${max.toFixed(1)} kg`, padding, padding - 14);
+function changeCalendarMonth(offset) {
+  const [year, month] = (els.calendarMonthInput.value || currentMonthValue()).split("-").map(Number);
+  const next = new Date(year, month - 1 + offset, 1);
+  els.calendarMonthInput.value = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
+  renderCalendar();
 }
 
 function getLatest(exercise) {
@@ -1505,7 +1501,7 @@ function importJson(event) {
       renderRoutineControls();
       renderWorkout();
       renderHistory();
-      renderMetrics();
+      renderCalendar();
       renderRoutineManager();
       updateSessionStartPanel();
       checkLongSession();
@@ -1579,6 +1575,14 @@ function diffMinutes(start, end) {
 
 function today() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function currentMonthValue() {
+  return today().slice(0, 7);
+}
+
+function isIsoDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
 }
 
 function formatTime(value) {
