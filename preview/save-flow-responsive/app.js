@@ -145,12 +145,16 @@ const els = {
   routineStrip: document.querySelector("#routineStrip"),
   routineSelect: document.querySelector("#routineSelect"),
   sessionDate: document.querySelector("#sessionDate"),
+<<<<<<< HEAD
   sessionStartPanel: document.querySelector("#sessionStartPanel"),
   sessionStartStatus: document.querySelector("#sessionStartStatus"),
   startSessionButton: document.querySelector("#startSessionButton"),
   longSessionAlert: document.querySelector("#longSessionAlert"),
   longSessionFinishButton: document.querySelector("#longSessionFinishButton"),
   longSessionContinueButton: document.querySelector("#longSessionContinueButton"),
+=======
+  sessionCount: document.querySelector("#sessionCount"),
+>>>>>>> 215edef3ede3350b49f5d49ac77a063192772503
   stickyProgressText: document.querySelector("#stickyProgressText"),
   stickyProgressFill: document.querySelector("#stickyProgressFill"),
   exerciseList: document.querySelector("#exerciseList"),
@@ -786,6 +790,7 @@ function updateSessionCount() {
   els.finishSessionButton.hidden = progress.pending > 2;
   els.stickyProgressText.textContent = `${progress.completed}/${progress.total} · ${progress.percent}%`;
   els.stickyProgressFill.style.width = `${progress.percent}%`;
+<<<<<<< HEAD
 }
 
 function createEmptySessionMeta() {
@@ -900,6 +905,8 @@ function hasOpenSession() {
 
 function hasDraftData() {
   return Array.from(drafts.values()).some((draft) => hasExerciseProgress(draft)) || sessionExercises.length > 0;
+=======
+>>>>>>> 215edef3ede3350b49f5d49ac77a063192772503
 }
 
 function hasWorkoutInput(draft) {
