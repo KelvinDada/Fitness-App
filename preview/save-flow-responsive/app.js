@@ -1133,12 +1133,37 @@ function renderHistory() {
           <strong>${escapeHtml(item.exercise)}</strong>
           <small>${escapeHtml(item.date)} · ${escapeHtml(item.routine)}</small>
         </span>
-        <span class="status-badge status-${item.decision || "hold"}">${decisionText(item.decision)}</span>
+        <div class="history-actions">
+          <span class="status-badge status-${item.decision || "hold"}">${decisionText(item.decision)}</span>
+          <button class="small-icon-button history-delete-button" type="button" aria-label="Eliminar registro de ${escapeHtml(item.exercise)}" title="Eliminar registro">×</button>
+        </div>
       </div>
       <div class="history-detail">${escapeHtml(formatHistoryReps(item) || "-")} · ${escapeHtml(item.weight || "-")} kg${item.notes ? ` · ${escapeHtml(item.notes)}` : ""}</div>
     `;
+    row.querySelector(".history-delete-button").addEventListener("click", () => deleteHistoryEntry(item));
     els.historyList.append(row);
   });
+}
+
+function deleteHistoryEntry(item) {
+  const label = `${item.date || "-"} · ${item.routine || "-"} · ${item.exercise || "-"}`;
+  if (!window.confirm(`¿Eliminar este registro?\n${label}`)) return;
+  const before = state.history.length;
+  if (item.id) {
+    state.history = state.history.filter((entryItem) => entryItem.id !== item.id);
+  } else {
+    const index = state.history.indexOf(item);
+    if (index >= 0) state.history.splice(index, 1);
+  }
+  if (state.history.length === before) {
+    showToast("No pude eliminar ese registro");
+    return;
+  }
+  saveState();
+  renderHistory();
+  renderRoutineControls();
+  renderWorkout();
+  showToast("Registro eliminado");
 }
 
 function openExerciseModal(exercise) {
