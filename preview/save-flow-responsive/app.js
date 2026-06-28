@@ -2,6 +2,8 @@ const STORAGE_KEY = "registro-gym-state-v1";
 const DRAFT_KEY = "registro-gym-session-draft-v1";
 const SEED_VERSION = window.REGISTRO_GYM_SEED_VERSION || "manual-seed-v1";
 const IMPORTED_HISTORY = window.REGISTRO_GYM_IMPORTED_HISTORY || [];
+const DEFAULT_EXPECTED_ROUTINE_DURATION_MIN = 70;
+const LONG_SESSION_CHECK_MS = 60_000;
 
 const seed = {
   settings: {
@@ -133,15 +135,22 @@ let state = loadState();
 let currentRoutine = state.lastRoutine && state.routines[state.lastRoutine] ? state.lastRoutine : Object.keys(state.routines)[0];
 const drafts = new Map();
 let sessionExercises = [];
+let sessionMeta = createEmptySessionMeta();
 let draftSaveTimer;
 let sessionAddMode = "today";
+let longSessionTimer;
 
 const els = {
   screenTitle: document.querySelector("#screenTitle"),
   routineStrip: document.querySelector("#routineStrip"),
   routineSelect: document.querySelector("#routineSelect"),
   sessionDate: document.querySelector("#sessionDate"),
-  sessionCount: document.querySelector("#sessionCount"),
+  sessionStartPanel: document.querySelector("#sessionStartPanel"),
+  sessionStartStatus: document.querySelector("#sessionStartStatus"),
+  startSessionButton: document.querySelector("#startSessionButton"),
+  longSessionAlert: document.querySelector("#longSessionAlert"),
+  longSessionFinishButton: document.querySelector("#longSessionFinishButton"),
+  longSessionContinueButton: document.querySelector("#longSessionContinueButton"),
   stickyProgressText: document.querySelector("#stickyProgressText"),
   stickyProgressFill: document.querySelector("#stickyProgressFill"),
   exerciseList: document.querySelector("#exerciseList"),
@@ -191,6 +200,9 @@ function init() {
   renderMetrics();
   renderRoutineManager();
   bindEvents();
+  updateSessionStartPanel();
+  checkLongSession();
+  startLongSessionChecks();
 }
 
 function entry(date, routine, exercise, reps, weight, decision, notes = "", extras = {}) {
@@ -252,14 +264,33 @@ function bindEvents() {
   });
 
   els.routineSelect.addEventListener("change", () => {
-    currentRoutine = els.routineSelect.value;
+    const nextRoutine = els.routineSelect.value;
+    if (!resolveActiveSessionBeforeChange()) {
+      els.routineSelect.value = currentRoutine;
+      return;
+    }
+    currentRoutine = nextRoutine;
     persistCurrentRoutine();
     saveSessionDraft();
     renderRoutineControls();
     renderWorkout();
   });
 
-  els.sessionDate.addEventListener("change", saveSessionDraft);
+  els.sessionDate.addEventListener("change", () => {
+    if (!resolveActiveSessionBeforeChange()) {
+      els.sessionDate.value = sessionMeta.routineDate || today();
+      return;
+    }
+    saveSessionDraft();
+    updateSessionStartPanel();
+  });
+  els.startSessionButton.addEventListener("click", () => startSession("manual"));
+  els.longSessionFinishButton.addEventListener("click", () => finishSession({ force: true }));
+  els.longSessionContinueButton.addEventListener("click", () => {
+    sessionMeta.longSessionDismissedAt = new Date().toISOString();
+    els.longSessionAlert.hidden = true;
+    saveSessionDraft();
+  });
   els.saveProgressButton.addEventListener("click", saveProgressCheckpoint);
   els.finishSessionButton.addEventListener("click", finishSession);
   els.addForTodayButton.addEventListener("click", () => setSessionAddMode("today"));
@@ -281,6 +312,10 @@ function bindEvents() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeExerciseModal();
   });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) checkLongSession();
+  });
+  window.addEventListener("focus", checkLongSession);
 
   [els.dumbbellStep, els.machineStep].forEach((input) => {
     input.addEventListener("change", () => {
@@ -333,6 +368,7 @@ function renderRoutineControls() {
       <small>${exerciseCount} ${exerciseCount === 1 ? "ejercicio" : "ejercicios"}</small>
     `;
     chip.addEventListener("click", () => {
+      if (!resolveActiveSessionBeforeChange()) return;
       currentRoutine = routine;
       els.routineSelect.value = routine;
       persistCurrentRoutine();
@@ -729,17 +765,141 @@ function removeExerciseFromRoutine(routine, exercise) {
 }
 
 function updateDraft(exercise, patch) {
-  drafts.set(exercise, { ...(drafts.get(exercise) || { decision: "hold" }), ...patch });
+  const previousDraft = drafts.get(exercise) || { decision: "hold" };
+  const wasReady = hasExerciseProgress(previousDraft);
+  const nextDraft = { ...previousDraft, ...patch };
+  const isReady = hasExerciseProgress(nextDraft);
+  if (isReady && !sessionMeta.sessionStartedAt) startSession("fallback_first_completion", { silent: true });
+  if (isReady && !wasReady && !nextDraft.completedAt) {
+    nextDraft.completedAt = new Date().toISOString();
+    nextDraft.completedAtSource = "first_completed_transition";
+  }
+  drafts.set(exercise, nextDraft);
   updateSessionCount();
+  updateSessionStartPanel();
+  checkLongSession();
   saveSessionDraft();
 }
 
 function updateSessionCount() {
   const progress = getWorkoutProgress();
-  els.sessionCount.textContent = progress.completed;
   els.finishSessionButton.hidden = progress.pending > 2;
   els.stickyProgressText.textContent = `${progress.completed}/${progress.total} · ${progress.percent}%`;
   els.stickyProgressFill.style.width = `${progress.percent}%`;
+}
+
+function createEmptySessionMeta() {
+  return {
+    sessionStartedAt: "",
+    sessionStartSource: "",
+    finishedAt: "",
+    routineDate: "",
+    routineName: "",
+    expectedDurationMin: DEFAULT_EXPECTED_ROUTINE_DURATION_MIN,
+    actualDurationMin: "",
+    cappedDurationMin: "",
+    isOverExpectedDuration: false,
+    longSessionDismissedAt: "",
+  };
+}
+
+function startSession(source = "manual", options = {}) {
+  if (sessionMeta.sessionStartedAt) {
+    updateSessionStartPanel();
+    return false;
+  }
+  sessionMeta = {
+    ...createEmptySessionMeta(),
+    ...sessionMeta,
+    sessionStartedAt: new Date().toISOString(),
+    sessionStartSource: source,
+    routineDate: els.sessionDate.value || today(),
+    routineName: currentRoutine,
+    expectedDurationMin: DEFAULT_EXPECTED_ROUTINE_DURATION_MIN,
+    finishedAt: "",
+  };
+  updateSessionStartPanel();
+  checkLongSession();
+  saveSessionDraft();
+  if (!options.silent) showToast("Rutina iniciada");
+  return true;
+}
+
+function updateSessionStartPanel() {
+  const startedAt = sessionMeta.sessionStartedAt;
+  els.sessionStartPanel.classList.toggle("is-started", Boolean(startedAt));
+  els.startSessionButton.hidden = Boolean(startedAt);
+  els.sessionStartStatus.textContent = startedAt ? `Iniciada ${formatTime(startedAt)}` : "Rutina sin iniciar";
+}
+
+function getSessionTiming(finishedAt = new Date().toISOString()) {
+  if (!sessionMeta.sessionStartedAt) {
+    return {
+      actualDurationMin: "",
+      cappedDurationMin: "",
+      isOverExpectedDuration: false,
+    };
+  }
+  const expectedDurationMin = Number(sessionMeta.expectedDurationMin) || DEFAULT_EXPECTED_ROUTINE_DURATION_MIN;
+  const actualDurationMin = diffMinutes(sessionMeta.sessionStartedAt, finishedAt);
+  if (actualDurationMin === "") {
+    return {
+      actualDurationMin: "",
+      cappedDurationMin: "",
+      isOverExpectedDuration: false,
+    };
+  }
+  return {
+    actualDurationMin,
+    cappedDurationMin: Math.min(actualDurationMin, expectedDurationMin),
+    isOverExpectedDuration: actualDurationMin > expectedDurationMin,
+  };
+}
+
+function checkLongSession() {
+  if (!sessionMeta.sessionStartedAt || sessionMeta.finishedAt) {
+    els.longSessionAlert.hidden = true;
+    return;
+  }
+  const expectedDurationMin = Number(sessionMeta.expectedDurationMin) || DEFAULT_EXPECTED_ROUTINE_DURATION_MIN;
+  const elapsedMin = diffMinutes(sessionMeta.sessionStartedAt, new Date().toISOString());
+  const exceeded = elapsedMin > expectedDurationMin;
+  sessionMeta.isOverExpectedDuration = exceeded;
+  els.longSessionAlert.hidden = !exceeded || Boolean(sessionMeta.longSessionDismissedAt);
+}
+
+function startLongSessionChecks() {
+  window.clearInterval(longSessionTimer);
+  longSessionTimer = window.setInterval(checkLongSession, LONG_SESSION_CHECK_MS);
+}
+
+function resolveActiveSessionBeforeChange() {
+  if (!hasOpenSession()) return true;
+  const action = window.prompt(
+    "Tienes una rutina anterior sin terminar. Escribe: guardar, continuar o descartar.",
+    "continuar",
+  );
+  const normalized = clean(action).toLowerCase();
+  if (normalized === "guardar") {
+    finishSession();
+    return !hasOpenSession();
+  }
+  if (normalized === "descartar") {
+    if (hasDraftData() && !window.confirm("Hay datos escritos. ¿Descartar esta sesión?")) return false;
+    resetWorkoutSession();
+    renderWorkout();
+    updateSessionStartPanel();
+    return true;
+  }
+  return false;
+}
+
+function hasOpenSession() {
+  return Boolean(sessionMeta.sessionStartedAt && !sessionMeta.finishedAt);
+}
+
+function hasDraftData() {
+  return Array.from(drafts.values()).some((draft) => hasExerciseProgress(draft)) || sessionExercises.length > 0;
 }
 
 function hasWorkoutInput(draft) {
@@ -774,6 +934,7 @@ function restoreSessionDraft() {
     if (stored.routine && state.routines[stored.routine]) currentRoutine = stored.routine;
     if (stored.date) els.sessionDate.value = stored.date;
     sessionExercises = Array.isArray(stored.sessionExercises) ? uniqueExercises(stored.sessionExercises) : [];
+    sessionMeta = { ...createEmptySessionMeta(), ...(stored.sessionMeta || {}) };
     Object.entries(stored.drafts || {}).forEach(([exercise, draft]) => {
       if (draft && typeof draft === "object") drafts.set(exercise, draft);
     });
@@ -791,10 +952,11 @@ function persistSessionDraftNow() {
   window.clearTimeout(draftSaveTimer);
   const draftEntries = Object.fromEntries(
     Array.from(drafts.entries()).filter(
-      ([, draft]) => hasWorkoutInput(draft) || draft.decision !== "hold" || isExerciseComplete(draft),
+      ([, draft]) => hasWorkoutInput(draft) || draft.decision !== "hold" || isExerciseComplete(draft) || draft.completedAt,
     ),
   );
-  if (!Object.keys(draftEntries).length && !sessionExercises.length) {
+  const hasSessionMeta = Boolean(sessionMeta.sessionStartedAt);
+  if (!Object.keys(draftEntries).length && !sessionExercises.length && !hasSessionMeta) {
     localStorage.removeItem(DRAFT_KEY);
     return false;
   }
@@ -804,6 +966,11 @@ function persistSessionDraftNow() {
       date: els.sessionDate.value || today(),
       routine: currentRoutine,
       sessionExercises,
+      sessionMeta: {
+        ...sessionMeta,
+        routineDate: sessionMeta.routineDate || els.sessionDate.value || today(),
+        routineName: sessionMeta.routineName || currentRoutine,
+      },
       drafts: draftEntries,
       updatedAt: new Date().toISOString(),
     }),
@@ -817,7 +984,7 @@ function clearSessionDraft() {
 }
 
 function saveProgressCheckpoint() {
-  if (!getWorkoutProgress().completed && !sessionExercises.length) {
+  if (!getWorkoutProgress().completed && !sessionExercises.length && !sessionMeta.sessionStartedAt) {
     showToast("Añade algún dato antes de guardar");
     return;
   }
@@ -826,9 +993,9 @@ function saveProgressCheckpoint() {
   showToast("Progreso guardado");
 }
 
-function finishSession() {
+function finishSession(options = {}) {
   const progress = getWorkoutProgress();
-  if (progress.pending > 2) {
+  if (!options.force && progress.pending > 2) {
     showToast("Termina más ejercicios antes de cerrar");
     updateSessionCount();
     return;
@@ -847,10 +1014,23 @@ function saveSession() {
     showToast("Añade algún dato antes de guardar");
     return;
   }
+  if (!sessionMeta.sessionStartedAt) startSession("fallback_first_completion", { silent: true });
+  const finishedAt = new Date().toISOString();
+  const timing = getSessionTiming(finishedAt);
+  sessionMeta = {
+    ...sessionMeta,
+    finishedAt,
+    routineDate: sessionDate,
+    routineName: currentRoutine,
+    expectedDurationMin: Number(sessionMeta.expectedDurationMin) || DEFAULT_EXPECTED_ROUTINE_DURATION_MIN,
+    ...timing,
+  };
+  const exerciseTimings = buildExerciseTimingMap(rows, sessionMeta.sessionStartedAt);
 
   const savedRows = rows.map(({ exercise, draft }) => {
     const sets = normalizeSets(draft.sets || []).filter((set) => clean(set.reps));
     const reps = sets.length ? formatSetsReps(sets) : clean(draft.reps || draft.legacyReps);
+    const exerciseTiming = exerciseTimings.get(exercise) || {};
     return entry(
       sessionDate,
       currentRoutine,
@@ -862,6 +1042,17 @@ function saveSession() {
       {
         sets,
         legacyReps: sets.length ? clean(draft.legacyReps) : clean(draft.legacyReps || draft.reps),
+        sessionStartedAt: sessionMeta.sessionStartedAt,
+        sessionStartSource: sessionMeta.sessionStartSource,
+        routineFinishedAt: sessionMeta.finishedAt,
+        expectedDurationMin: sessionMeta.expectedDurationMin,
+        actualDurationMin: sessionMeta.actualDurationMin,
+        cappedDurationMin: sessionMeta.cappedDurationMin,
+        isOverExpectedDuration: sessionMeta.isOverExpectedDuration,
+        exerciseCompletedAt: draft.completedAt || "",
+        completedAtSource: draft.completedAtSource || "",
+        elapsedFromSessionStartMin: exerciseTiming.elapsedFromSessionStartMin ?? "",
+        estimatedExerciseDurationMin: exerciseTiming.estimatedExerciseDurationMin ?? "",
       },
     );
   });
@@ -873,6 +1064,7 @@ function saveSession() {
   const summary = buildWorkoutSummary(savedRows, {
     routine: currentRoutine,
     date: sessionDate,
+    ...sessionMeta,
   });
 
   resetWorkoutSession();
@@ -887,11 +1079,31 @@ function resetWorkoutSession() {
   window.clearTimeout(draftSaveTimer);
   drafts.clear();
   sessionExercises = [];
+  sessionMeta = createEmptySessionMeta();
   els.sessionDate.value = today();
   els.exerciseList.querySelectorAll("input, textarea").forEach((field) => {
     field.value = "";
   });
   clearSessionDraft();
+  updateSessionStartPanel();
+  checkLongSession();
+}
+
+function buildExerciseTimingMap(rows, startedAt) {
+  const timing = new Map();
+  if (!startedAt) return timing;
+  const completedRows = rows
+    .map(({ exercise, draft }) => ({ exercise, completedAt: draft.completedAt }))
+    .filter((item) => item.completedAt)
+    .sort((a, b) => a.completedAt.localeCompare(b.completedAt));
+  completedRows.forEach((item, index) => {
+    const previousAt = index === 0 ? startedAt : completedRows[index - 1].completedAt;
+    timing.set(item.exercise, {
+      elapsedFromSessionStartMin: diffMinutes(startedAt, item.completedAt),
+      estimatedExerciseDurationMin: diffMinutes(previousAt, item.completedAt),
+    });
+  });
+  return timing;
 }
 
 function renderHistory() {
@@ -1119,8 +1331,15 @@ function formatSetsReps(sets) {
 }
 
 function buildWorkoutSummary(rows, session) {
-  const header = [`${session.routine} · ${session.date}`];
-  const table = ["Ejercicio | Peso | Series | Reps | Estado | Notas"];
+  const header = [
+    `${session.routine} · ${session.date}`,
+    `Inicio entreno: ${formatTime(session.sessionStartedAt)}`,
+    `Fin entreno: ${formatTime(session.finishedAt)}`,
+    `Duración total: ${formatDuration(session.actualDurationMin)}`,
+    `Duración esperada: ${session.expectedDurationMin || DEFAULT_EXPECTED_ROUTINE_DURATION_MIN} min`,
+    `Estado: ${session.isOverExpectedDuration ? "Superó el tiempo estimado" : "Dentro del tiempo estimado"}`,
+  ];
+  const table = ["Ejercicio | Peso | Series | Reps | Progreso | Hora completado | Duración aprox. | Notas"];
   rows.forEach((row) => {
     const sets = getHistorySets(row);
     table.push(
@@ -1130,6 +1349,8 @@ function buildWorkoutSummary(rows, session) {
         sets.length || "-",
         formatHistoryReps(row) || "-",
         decisionText(row.decision),
+        row.exerciseCompletedAt ? formatTime(row.exerciseCompletedAt) : "-",
+        formatDuration(row.estimatedExerciseDurationMin),
         row.notes || row.legacyReps || "-",
       ].join(" | "),
     );
@@ -1178,6 +1399,17 @@ function exportCsv() {
     "Notas",
     "Decision",
     "Reps antiguas",
+    "sessionStartedAt",
+    "sessionStartSource",
+    "routineFinishedAt",
+    "expectedDurationMin",
+    "actualDurationMin",
+    "cappedDurationMin",
+    "isOverExpectedDuration",
+    "exerciseCompletedAt",
+    "completedAtSource",
+    "elapsedFromSessionStartMin",
+    "estimatedExerciseDurationMin",
   ];
   const rows = state.history
     .slice()
@@ -1195,6 +1427,17 @@ function exportCsv() {
         item.notes,
         decisionText(item.decision),
         item.legacyReps || (!sets.length ? item.reps : ""),
+        item.sessionStartedAt,
+        item.sessionStartSource,
+        item.routineFinishedAt,
+        item.expectedDurationMin,
+        item.actualDurationMin,
+        item.cappedDurationMin,
+        item.isOverExpectedDuration,
+        item.exerciseCompletedAt,
+        item.completedAtSource,
+        item.elapsedFromSessionStartMin,
+        item.estimatedExerciseDurationMin,
       ];
     });
   download("registro-gym.csv", [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n"), "text/csv");
@@ -1219,12 +1462,15 @@ function importJson(event) {
       els.emailSummaryEnabled.checked = Boolean(state.settings.emailSummaryEnabled);
       drafts.clear();
       sessionExercises = [];
+      sessionMeta = createEmptySessionMeta();
       clearSessionDraft();
       renderRoutineControls();
       renderWorkout();
       renderHistory();
       renderMetrics();
       renderRoutineManager();
+      updateSessionStartPanel();
+      checkLongSession();
       showToast("Copia importada");
     } catch {
       showToast("No pude importar ese archivo");
@@ -1286,8 +1532,26 @@ function tidyNumber(value) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
 }
 
+function diffMinutes(start, end) {
+  const startTime = Date.parse(start);
+  const endTime = Date.parse(end);
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime < startTime) return "";
+  return Math.round((endTime - startTime) / 60000);
+}
+
 function today() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function formatTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatDuration(value) {
+  return value === "" || value === undefined || value === null ? "-" : `${value} min`;
 }
 
 function formatShortDate(value) {

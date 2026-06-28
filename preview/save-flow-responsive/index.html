@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#101313" />
     <title>Registro Gym</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=20260628-save-flow-progress" />
+    <link rel="stylesheet" href="./styles.css?v=20260628-session-timestamps" />
   </head>
   <body>
     <div class="app-shell">
@@ -35,9 +35,18 @@
                 <select id="routineSelect"></select>
               </label>
             </div>
-            <div class="session-summary">
-              <strong id="sessionCount">0</strong>
-              <span>ejercicios listos</span>
+            <div class="session-start-panel" id="sessionStartPanel">
+              <span id="sessionStartStatus">Rutina sin iniciar</span>
+              <button class="start-session-button" id="startSessionButton" type="button">💪🏿 Iniciar rutina</button>
+            </div>
+          </section>
+
+          <section class="long-session-alert" id="longSessionAlert" hidden>
+            <strong>Sesión activa desde hace más de 70 min.</strong>
+            <span>Revisa si quieres guardar y terminar esta rutina.</span>
+            <div>
+              <button class="secondary-button" id="longSessionFinishButton" type="button">Guardar y terminar</button>
+              <button class="secondary-button" id="longSessionContinueButton" type="button">Seguir entrenando</button>
             </div>
           </section>
 
@@ -231,7 +240,7 @@
         <div class="exercise-timeline" id="exerciseTimeline"></div>
       </section>
     </div>
-    <script src="./seed-history.js?v=20260628-save-flow-progress"></script>
-    <script src="./app.js?v=20260628-save-flow-progress"></script>
+    <script src="./seed-history.js?v=20260628-session-timestamps"></script>
+    <script src="./app.js?v=20260628-session-timestamps"></script>
   </body>
 </html>

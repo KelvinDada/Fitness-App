@@ -226,27 +226,54 @@ textarea:focus {
   box-shadow: 0 0 0 3px rgba(31, 122, 100, 0.14);
 }
 
-.session-summary {
+.session-start-panel {
   display: grid;
-  grid-column: 2;
-  grid-row: 1;
-  min-width: 78px;
-  place-items: center;
+  min-width: 138px;
+  align-content: center;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 10px;
+  color: var(--muted);
+  background: #f5f7f4;
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.session-start-panel.is-started {
+  color: #0e5d4a;
+  background: var(--accent-soft);
+}
+
+.start-session-button {
+  min-height: 38px;
+  border: 0;
   border-radius: 8px;
   color: #fff;
-  background: var(--dark);
-  text-align: center;
+  background: var(--accent);
+  font-weight: 900;
 }
 
-.session-summary strong {
-  font-size: 1.55rem;
-  line-height: 1;
+.long-session-alert {
+  display: grid;
+  gap: 8px;
+  margin: -4px 0 12px;
+  border: 1px solid #f0c46d;
+  border-radius: 8px;
+  padding: 10px;
+  color: #6f4308;
+  background: #fff8e8;
+  font-size: 0.82rem;
 }
 
-.session-summary span {
-  max-width: 64px;
-  font-size: 0.72rem;
-  line-height: 1.05;
+.long-session-alert[hidden] {
+  display: none;
+}
+
+.long-session-alert div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
 .exercise-list,
@@ -972,10 +999,8 @@ canvas {
     min-width: 0;
   }
 
-  .session-summary {
-    grid-column: auto;
-    grid-row: auto;
-    min-height: 64px;
+  .session-start-panel {
+    min-width: 0;
   }
 }
 
@@ -991,10 +1016,9 @@ canvas {
     grid-template-columns: 1fr;
   }
 
-  .session-summary {
-    grid-column: auto;
-    grid-row: auto;
-    min-height: 64px;
+  .session-start-panel,
+  .long-session-alert div {
+    grid-template-columns: 1fr;
   }
 
   .timeline-row {
