@@ -1071,8 +1071,14 @@ function saveSession() {
   saveState();
   renderWorkout();
   renderHistory();
-  const emailOpened = maybeOpenEmailSummary(summary, currentRoutine, sessionDate);
-  showToast(emailOpened ? "Entreno guardado" : "Entreno guardado. Email resumen desactivado");
+  const emailStatus = maybeOpenEmailSummary(summary, currentRoutine, sessionDate);
+  const messages = {
+    opened: "Entreno guardado. Abriendo email resumen",
+    disabled: "Entreno guardado. Email resumen desactivado",
+    copied: "Entreno guardado. Resumen largo copiado",
+    copy_failed: "Entreno guardado. Resumen largo: copia manual",
+  };
+  showToast(messages[emailStatus] || "Entreno guardado");
 }
 
 function resetWorkoutSession() {
@@ -1369,22 +1375,29 @@ function estimateWorkoutVolume(rows) {
 }
 
 function maybeOpenEmailSummary(body, routine, date) {
-  if (!state.settings.emailSummaryEnabled) return false;
+  if (!state.settings.emailSummaryEnabled) return "disabled";
   const subject = `${routine} · ${date}`;
   const mailto = `mailto:kelvinstarlin.feliz@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  if (mailto.length < 1800) {
-    window.location.assign(mailto);
-    return true;
+  if (mailto.length < 8000) {
+    const link = document.createElement("a");
+    link.href = mailto;
+    link.target = "_self";
+    link.rel = "noopener";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    return "opened";
   }
   if (navigator.clipboard?.writeText) {
     navigator.clipboard.writeText(body).then(
       () => showToast("Resumen muy largo: copiado al portapapeles"),
       () => showToast("Resumen muy largo: copia manual desde historial"),
     );
+    return "copied";
   } else {
     showToast("Resumen muy largo para abrir email");
+    return "copy_failed";
   }
-  return true;
 }
 
 function exportCsv() {
