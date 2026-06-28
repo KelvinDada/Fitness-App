@@ -144,7 +144,8 @@ const els = {
   sessionCount: document.querySelector("#sessionCount"),
   exerciseList: document.querySelector("#exerciseList"),
   template: document.querySelector("#exerciseCardTemplate"),
-  saveSessionButton: document.querySelector("#saveSessionButton"),
+  saveProgressButton: document.querySelector("#saveProgressButton"),
+  finishSessionButton: document.querySelector("#finishSessionButton"),
   sessionExerciseInput: document.querySelector("#sessionExerciseInput"),
   addForTodayButton: document.querySelector("#addForTodayButton"),
   addToRoutineButton: document.querySelector("#addToRoutineButton"),
@@ -257,7 +258,8 @@ function bindEvents() {
   });
 
   els.sessionDate.addEventListener("change", saveSessionDraft);
-  els.saveSessionButton.addEventListener("click", saveSession);
+  els.saveProgressButton.addEventListener("click", saveProgressCheckpoint);
+  els.finishSessionButton.addEventListener("click", finishSession);
   els.addForTodayButton.addEventListener("click", () => setSessionAddMode("today"));
   els.addToRoutineButton.addEventListener("click", () => setSessionAddMode("routine"));
   els.addSessionExerciseButton.addEventListener("click", addSessionExercise);
@@ -731,13 +733,28 @@ function updateDraft(exercise, patch) {
 }
 
 function updateSessionCount() {
-  const count = Array.from(drafts.values()).filter((draft) => isExerciseComplete(draft)).length;
-  els.sessionCount.textContent = count;
+  const progress = getWorkoutProgress();
+  els.sessionCount.textContent = progress.completed;
+  els.finishSessionButton.hidden = progress.pending > 2;
 }
 
 function hasWorkoutInput(draft) {
   const hasSetReps = Array.isArray(draft.sets) && draft.sets.some((set) => clean(set?.reps || set));
   return hasSetReps || [draft.reps, draft.legacyReps, draft.weight, draft.notes].some((value) => clean(value));
+}
+
+function hasExerciseProgress(draft) {
+  return hasWorkoutInput(draft || {}) || isExerciseComplete(draft);
+}
+
+function getWorkoutProgress() {
+  const exercises = getWorkoutExercises();
+  const completed = exercises.filter((exercise) => hasExerciseProgress(drafts.get(exercise))).length;
+  return {
+    total: exercises.length,
+    completed,
+    pending: Math.max(0, exercises.length - completed),
+  };
 }
 
 function isExerciseComplete(draft) {
@@ -761,27 +778,31 @@ function restoreSessionDraft() {
 
 function saveSessionDraft() {
   window.clearTimeout(draftSaveTimer);
-  draftSaveTimer = window.setTimeout(() => {
-    const draftEntries = Object.fromEntries(
-      Array.from(drafts.entries()).filter(
-        ([, draft]) => hasWorkoutInput(draft) || draft.decision !== "hold" || isExerciseComplete(draft),
-      ),
-    );
-    if (!Object.keys(draftEntries).length && !sessionExercises.length) {
-      localStorage.removeItem(DRAFT_KEY);
-      return;
-    }
-    localStorage.setItem(
-      DRAFT_KEY,
-      JSON.stringify({
-        date: els.sessionDate.value || today(),
-        routine: currentRoutine,
-        sessionExercises,
-        drafts: draftEntries,
-        updatedAt: new Date().toISOString(),
-      }),
-    );
-  }, 150);
+  draftSaveTimer = window.setTimeout(persistSessionDraftNow, 150);
+}
+
+function persistSessionDraftNow() {
+  window.clearTimeout(draftSaveTimer);
+  const draftEntries = Object.fromEntries(
+    Array.from(drafts.entries()).filter(
+      ([, draft]) => hasWorkoutInput(draft) || draft.decision !== "hold" || isExerciseComplete(draft),
+    ),
+  );
+  if (!Object.keys(draftEntries).length && !sessionExercises.length) {
+    localStorage.removeItem(DRAFT_KEY);
+    return false;
+  }
+  localStorage.setItem(
+    DRAFT_KEY,
+    JSON.stringify({
+      date: els.sessionDate.value || today(),
+      routine: currentRoutine,
+      sessionExercises,
+      drafts: draftEntries,
+      updatedAt: new Date().toISOString(),
+    }),
+  );
+  return true;
 }
 
 function clearSessionDraft() {
@@ -789,14 +810,35 @@ function clearSessionDraft() {
   localStorage.removeItem(DRAFT_KEY);
 }
 
+function saveProgressCheckpoint() {
+  if (!getWorkoutProgress().completed && !sessionExercises.length) {
+    showToast("Añade algún dato antes de guardar");
+    return;
+  }
+  persistSessionDraftNow();
+  saveState();
+  showToast("Progreso guardado");
+}
+
+function finishSession() {
+  const progress = getWorkoutProgress();
+  if (progress.pending > 2) {
+    showToast("Termina más ejercicios antes de cerrar");
+    updateSessionCount();
+    return;
+  }
+  if (!window.confirm("¿Guardar y terminar este entreno? Se limpiarán los campos actuales.")) return;
+  saveSession();
+}
+
 function saveSession() {
   const sessionDate = els.sessionDate.value || today();
   const rows = Array.from(drafts.entries())
     .map(([exercise, draft]) => ({ exercise, draft }))
-    .filter(({ draft }) => hasWorkoutInput(draft));
+    .filter(({ draft }) => hasExerciseProgress(draft));
 
   if (!rows.length) {
-    showToast("Añade reps, peso o notas antes de guardar");
+    showToast("Añade algún dato antes de guardar");
     return;
   }
 
