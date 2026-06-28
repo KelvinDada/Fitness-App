@@ -1161,10 +1161,31 @@ function deleteHistoryEntry(item) {
     return;
   }
   saveState();
+  refreshAfterHistoryChange();
+  showToast("Registro eliminado");
+}
+
+function deleteWorkoutSession(session) {
+  const warning =
+    "¿Seguro que quieres borrar esta rutina completa? Esta acción eliminará también los ejercicios registrados en ella y no se puede deshacer.";
+  if (!window.confirm(`${warning}\n\n${session.date} · ${session.routine}`)) return;
+  const before = state.history.length;
+  state.history = state.history.filter((item) => getHistorySessionKey(item) !== session.key);
+  const deleted = before - state.history.length;
+  if (!deleted) {
+    showToast("No pude eliminar esa rutina");
+    return;
+  }
+  saveState();
+  refreshAfterHistoryChange();
+  showToast("Rutina eliminada");
+}
+
+function refreshAfterHistoryChange() {
   renderHistory();
+  renderCalendar();
   renderRoutineControls();
   renderWorkout();
-  showToast("Registro eliminado");
 }
 
 function openExerciseModal(exercise) {
@@ -1254,11 +1275,16 @@ function renderMonthWorkoutList(items) {
 
   const table = document.createElement("div");
   table.className = "month-table";
-  table.innerHTML = `<div class="month-table-head"><span>Fecha</span><span>Rutina</span></div>`;
+  table.innerHTML = `<div class="month-table-head"><span>Fecha</span><span>Rutina</span><span>Acción</span></div>`;
   items.forEach((item) => {
     const row = document.createElement("div");
     row.className = "month-table-row";
-    row.innerHTML = `<span>${escapeHtml(item.date)}</span><strong>${escapeHtml(item.routine || "-")}</strong>`;
+    row.innerHTML = `
+      <span>${escapeHtml(item.date)}</span>
+      <strong>${escapeHtml(item.routine || "-")}</strong>
+      <button class="small-icon-button calendar-delete-button" type="button" aria-label="Borrar ${escapeHtml(item.routine || "rutina")}" title="Borrar rutina">×</button>
+    `;
+    row.querySelector(".calendar-delete-button").addEventListener("click", () => deleteWorkoutSession(item));
     table.append(row);
   });
   els.monthWorkoutList.append(table);
@@ -1268,10 +1294,10 @@ function getMonthWorkoutEntries(monthValue) {
   const sessions = new Map();
   state.history.forEach((item) => {
     if (!isIsoDate(item.date) || !item.date.startsWith(`${monthValue}-`) || !item.routine) return;
-    const sessionToken = item.sessionStartedAt || item.routineFinishedAt || "";
-    const key = `${item.date}|${item.routine}|${sessionToken}`;
+    const key = getHistorySessionKey(item);
     if (!sessions.has(key)) {
       sessions.set(key, {
+        key,
         date: item.date,
         routine: item.routine,
         sessionStartedAt: item.sessionStartedAt || "",
@@ -1285,6 +1311,13 @@ function getMonthWorkoutEntries(monthValue) {
       String(b.routineFinishedAt || b.sessionStartedAt).localeCompare(String(a.routineFinishedAt || a.sessionStartedAt)) ||
       String(a.routine).localeCompare(String(b.routine)),
   );
+}
+
+function getHistorySessionKey(item) {
+  const sessionToken = item.workoutSessionId || item.routineFinishedAt || item.sessionStartedAt || "";
+  const date = String(item.date || "").trim();
+  const routine = String(item.routine || "").trim();
+  return sessionToken ? `${date}|${routine}|${sessionToken}` : `legacy|${date}|${routine}`;
 }
 
 function changeCalendarMonth(offset) {
