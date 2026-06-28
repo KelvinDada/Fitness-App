@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#101313" />
     <title>Registro Gym</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=20260627-workout-flow" />
+    <link rel="stylesheet" href="./styles.css?v=20260629-main-release" />
   </head>
   <body>
     <div class="app-shell">
@@ -35,9 +35,18 @@
                 <select id="routineSelect"></select>
               </label>
             </div>
-            <div class="session-summary">
-              <strong id="sessionCount">0</strong>
-              <span>ejercicios listos</span>
+            <div class="session-start-panel" id="sessionStartPanel">
+              <span id="sessionStartStatus">Rutina sin iniciar</span>
+              <button class="start-session-button" id="startSessionButton" type="button">💪🏿 Iniciar rutina</button>
+            </div>
+          </section>
+
+          <section class="long-session-alert" id="longSessionAlert" hidden>
+            <strong>Sesión activa desde hace más de 70 min.</strong>
+            <span>Revisa si quieres guardar y terminar esta rutina.</span>
+            <div>
+              <button class="secondary-button" id="longSessionFinishButton" type="button">Guardar y terminar</button>
+              <button class="secondary-button" id="longSessionContinueButton" type="button">Seguir entrenando</button>
             </div>
           </section>
 
@@ -56,7 +65,16 @@
           </section>
 
           <div class="sticky-actions">
-            <button class="primary-button" id="saveSessionButton" type="button">Guardar entreno</button>
+            <div class="sticky-progress" aria-live="polite">
+              <div class="sticky-progress-meta">
+                <span id="stickyProgressText">0/0 · 0%</span>
+              </div>
+              <div class="sticky-progress-track" aria-hidden="true">
+                <span id="stickyProgressFill"></span>
+              </div>
+            </div>
+            <button class="primary-button" id="saveProgressButton" type="button">Guardar y continuar</button>
+            <button class="secondary-button finish-button" id="finishSessionButton" type="button" hidden>Guardar y terminar</button>
           </div>
         </section>
 
@@ -68,25 +86,18 @@
         </section>
 
         <section class="view" id="progressView" aria-labelledby="progressTab">
-          <section class="metrics-panel">
-            <label>
-              <span>Fecha</span>
-              <input id="metricDate" type="date" />
-            </label>
-            <label>
-              <span>Peso corporal</span>
-              <input id="bodyWeightInput" inputmode="decimal" placeholder="kg" />
-            </label>
-            <label>
-              <span>Cintura</span>
-              <input id="waistInput" inputmode="decimal" placeholder="cm" />
-            </label>
-            <button class="secondary-button" id="saveMetricButton" type="button">Añadir medida</button>
+          <section class="calendar-panel">
+            <div class="calendar-toolbar">
+              <button class="small-icon-button" id="prevMonthButton" type="button" aria-label="Mes anterior" title="Mes anterior">‹</button>
+              <label>
+                <span>Mes</span>
+                <input id="calendarMonthInput" type="month" />
+              </label>
+              <button class="small-icon-button" id="nextMonthButton" type="button" aria-label="Mes siguiente" title="Mes siguiente">›</button>
+            </div>
+            <div class="calendar-grid" id="calendarGrid" aria-label="Calendario mensual"></div>
           </section>
-          <div class="chart-wrap">
-            <canvas id="bodyChart" width="720" height="360"></canvas>
-          </div>
-          <div class="metric-list" id="metricList"></div>
+          <div class="month-workout-list" id="monthWorkoutList"></div>
         </section>
 
         <section class="view" id="routinesView" aria-labelledby="routinesTab">
@@ -148,7 +159,7 @@
         </button>
         <button class="tab" id="progressTab" data-view="progressView" type="button">
           <span aria-hidden="true">⌁</span>
-          <span>Progreso</span>
+          <span>Calendario</span>
         </button>
         <button class="tab" id="routinesTab" data-view="routinesView" type="button">
           <span aria-hidden="true">☷</span>
@@ -222,7 +233,7 @@
         <div class="exercise-timeline" id="exerciseTimeline"></div>
       </section>
     </div>
-    <script src="./seed-history.js?v=20260627-workout-flow"></script>
-    <script src="./app.js?v=20260627-workout-flow"></script>
+    <script src="./seed-history.js?v=20260629-main-release"></script>
+    <script src="./app.js?v=20260629-main-release"></script>
   </body>
 </html>

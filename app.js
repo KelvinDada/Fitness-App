@@ -2,6 +2,8 @@ const STORAGE_KEY = "registro-gym-state-v1";
 const DRAFT_KEY = "registro-gym-session-draft-v1";
 const SEED_VERSION = window.REGISTRO_GYM_SEED_VERSION || "manual-seed-v1";
 const IMPORTED_HISTORY = window.REGISTRO_GYM_IMPORTED_HISTORY || [];
+const DEFAULT_EXPECTED_ROUTINE_DURATION_MIN = 70;
+const LONG_SESSION_CHECK_MS = 60_000;
 
 const seed = {
   settings: {
@@ -133,30 +135,39 @@ let state = loadState();
 let currentRoutine = state.lastRoutine && state.routines[state.lastRoutine] ? state.lastRoutine : Object.keys(state.routines)[0];
 const drafts = new Map();
 let sessionExercises = [];
+let sessionMeta = createEmptySessionMeta();
 let draftSaveTimer;
 let sessionAddMode = "today";
+let longSessionTimer;
 
 const els = {
   screenTitle: document.querySelector("#screenTitle"),
   routineStrip: document.querySelector("#routineStrip"),
   routineSelect: document.querySelector("#routineSelect"),
   sessionDate: document.querySelector("#sessionDate"),
-  sessionCount: document.querySelector("#sessionCount"),
+  sessionStartPanel: document.querySelector("#sessionStartPanel"),
+  sessionStartStatus: document.querySelector("#sessionStartStatus"),
+  startSessionButton: document.querySelector("#startSessionButton"),
+  longSessionAlert: document.querySelector("#longSessionAlert"),
+  longSessionFinishButton: document.querySelector("#longSessionFinishButton"),
+  longSessionContinueButton: document.querySelector("#longSessionContinueButton"),
+  stickyProgressText: document.querySelector("#stickyProgressText"),
+  stickyProgressFill: document.querySelector("#stickyProgressFill"),
   exerciseList: document.querySelector("#exerciseList"),
   template: document.querySelector("#exerciseCardTemplate"),
-  saveSessionButton: document.querySelector("#saveSessionButton"),
+  saveProgressButton: document.querySelector("#saveProgressButton"),
+  finishSessionButton: document.querySelector("#finishSessionButton"),
   sessionExerciseInput: document.querySelector("#sessionExerciseInput"),
   addForTodayButton: document.querySelector("#addForTodayButton"),
   addToRoutineButton: document.querySelector("#addToRoutineButton"),
   addSessionExerciseButton: document.querySelector("#addSessionExerciseButton"),
   historySearch: document.querySelector("#historySearch"),
   historyList: document.querySelector("#historyList"),
-  metricDate: document.querySelector("#metricDate"),
-  bodyWeightInput: document.querySelector("#bodyWeightInput"),
-  waistInput: document.querySelector("#waistInput"),
-  saveMetricButton: document.querySelector("#saveMetricButton"),
-  metricList: document.querySelector("#metricList"),
-  bodyChart: document.querySelector("#bodyChart"),
+  calendarMonthInput: document.querySelector("#calendarMonthInput"),
+  prevMonthButton: document.querySelector("#prevMonthButton"),
+  nextMonthButton: document.querySelector("#nextMonthButton"),
+  calendarGrid: document.querySelector("#calendarGrid"),
+  monthWorkoutList: document.querySelector("#monthWorkoutList"),
   exportCsvButton: document.querySelector("#exportCsvButton"),
   exportJsonButton: document.querySelector("#exportJsonButton"),
   importJsonInput: document.querySelector("#importJsonInput"),
@@ -177,7 +188,7 @@ init();
 function init() {
   restoreSessionDraft();
   els.sessionDate.value ||= today();
-  els.metricDate.value = today();
+  els.calendarMonthInput.value = currentMonthValue();
   els.dumbbellStep.value = state.settings.dumbbellStep;
   els.machineStep.value = state.settings.machineStep;
   els.emailSummaryEnabled.checked = Boolean(state.settings.emailSummaryEnabled);
@@ -185,9 +196,12 @@ function init() {
   renderRoutineControls();
   renderWorkout();
   renderHistory();
-  renderMetrics();
+  renderCalendar();
   renderRoutineManager();
   bindEvents();
+  updateSessionStartPanel();
+  checkLongSession();
+  startLongSessionChecks();
 }
 
 function entry(date, routine, exercise, reps, weight, decision, notes = "", extras = {}) {
@@ -249,15 +263,35 @@ function bindEvents() {
   });
 
   els.routineSelect.addEventListener("change", () => {
-    currentRoutine = els.routineSelect.value;
+    const nextRoutine = els.routineSelect.value;
+    if (!resolveActiveSessionBeforeChange()) {
+      els.routineSelect.value = currentRoutine;
+      return;
+    }
+    currentRoutine = nextRoutine;
     persistCurrentRoutine();
     saveSessionDraft();
     renderRoutineControls();
     renderWorkout();
   });
 
-  els.sessionDate.addEventListener("change", saveSessionDraft);
-  els.saveSessionButton.addEventListener("click", saveSession);
+  els.sessionDate.addEventListener("change", () => {
+    if (!resolveActiveSessionBeforeChange()) {
+      els.sessionDate.value = sessionMeta.routineDate || today();
+      return;
+    }
+    saveSessionDraft();
+    updateSessionStartPanel();
+  });
+  els.startSessionButton.addEventListener("click", () => startSession("manual"));
+  els.longSessionFinishButton.addEventListener("click", () => finishSession({ force: true }));
+  els.longSessionContinueButton.addEventListener("click", () => {
+    sessionMeta.longSessionDismissedAt = new Date().toISOString();
+    els.longSessionAlert.hidden = true;
+    saveSessionDraft();
+  });
+  els.saveProgressButton.addEventListener("click", saveProgressCheckpoint);
+  els.finishSessionButton.addEventListener("click", finishSession);
   els.addForTodayButton.addEventListener("click", () => setSessionAddMode("today"));
   els.addToRoutineButton.addEventListener("click", () => setSessionAddMode("routine"));
   els.addSessionExerciseButton.addEventListener("click", addSessionExercise);
@@ -265,7 +299,9 @@ function bindEvents() {
     if (event.key === "Enter") addSessionExercise();
   });
   els.historySearch.addEventListener("input", renderHistory);
-  els.saveMetricButton.addEventListener("click", saveMetric);
+  els.calendarMonthInput.addEventListener("change", renderCalendar);
+  els.prevMonthButton.addEventListener("click", () => changeCalendarMonth(-1));
+  els.nextMonthButton.addEventListener("click", () => changeCalendarMonth(1));
   els.exportCsvButton.addEventListener("click", exportCsv);
   els.exportJsonButton.addEventListener("click", exportJson);
   els.importJsonInput.addEventListener("change", importJson);
@@ -277,6 +313,10 @@ function bindEvents() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeExerciseModal();
   });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) checkLongSession();
+  });
+  window.addEventListener("focus", checkLongSession);
 
   [els.dumbbellStep, els.machineStep].forEach((input) => {
     input.addEventListener("change", () => {
@@ -299,12 +339,12 @@ function switchView(viewId) {
   const titles = {
     workoutView: "Entreno",
     historyView: "Historial",
-    progressView: "Progreso",
+    progressView: "Calendario",
     routinesView: "Rutinas",
     settingsView: "Ajustes",
   };
   els.screenTitle.textContent = titles[viewId];
-  if (viewId === "progressView") drawChart();
+  if (viewId === "progressView") renderCalendar();
 }
 
 function renderRoutineControls() {
@@ -329,6 +369,7 @@ function renderRoutineControls() {
       <small>${exerciseCount} ${exerciseCount === 1 ? "ejercicio" : "ejercicios"}</small>
     `;
     chip.addEventListener("click", () => {
+      if (!resolveActiveSessionBeforeChange()) return;
       currentRoutine = routine;
       els.routineSelect.value = routine;
       persistCurrentRoutine();
@@ -725,19 +766,162 @@ function removeExerciseFromRoutine(routine, exercise) {
 }
 
 function updateDraft(exercise, patch) {
-  drafts.set(exercise, { ...(drafts.get(exercise) || { decision: "hold" }), ...patch });
+  const previousDraft = drafts.get(exercise) || { decision: "hold" };
+  const wasReady = hasExerciseProgress(previousDraft);
+  const nextDraft = { ...previousDraft, ...patch };
+  const isReady = hasExerciseProgress(nextDraft);
+  if (isReady && !sessionMeta.sessionStartedAt) startSession("fallback_first_completion", { silent: true });
+  if (isReady && !wasReady && !nextDraft.completedAt) {
+    nextDraft.completedAt = new Date().toISOString();
+    nextDraft.completedAtSource = "first_completed_transition";
+  }
+  drafts.set(exercise, nextDraft);
   updateSessionCount();
+  updateSessionStartPanel();
+  checkLongSession();
   saveSessionDraft();
 }
 
 function updateSessionCount() {
-  const count = Array.from(drafts.values()).filter((draft) => isExerciseComplete(draft)).length;
-  els.sessionCount.textContent = count;
+  const progress = getWorkoutProgress();
+  els.finishSessionButton.hidden = progress.pending > 2;
+  els.stickyProgressText.textContent = `${progress.completed}/${progress.total} · ${progress.percent}%`;
+  els.stickyProgressFill.style.width = `${progress.percent}%`;
+}
+
+function createEmptySessionMeta() {
+  return {
+    sessionStartedAt: "",
+    sessionStartSource: "",
+    finishedAt: "",
+    routineDate: "",
+    routineName: "",
+    expectedDurationMin: DEFAULT_EXPECTED_ROUTINE_DURATION_MIN,
+    actualDurationMin: "",
+    cappedDurationMin: "",
+    isOverExpectedDuration: false,
+    longSessionDismissedAt: "",
+  };
+}
+
+function startSession(source = "manual", options = {}) {
+  if (sessionMeta.sessionStartedAt) {
+    updateSessionStartPanel();
+    return false;
+  }
+  sessionMeta = {
+    ...createEmptySessionMeta(),
+    ...sessionMeta,
+    sessionStartedAt: new Date().toISOString(),
+    sessionStartSource: source,
+    routineDate: els.sessionDate.value || today(),
+    routineName: currentRoutine,
+    expectedDurationMin: DEFAULT_EXPECTED_ROUTINE_DURATION_MIN,
+    finishedAt: "",
+  };
+  updateSessionStartPanel();
+  checkLongSession();
+  saveSessionDraft();
+  if (!options.silent) showToast("Rutina iniciada");
+  return true;
+}
+
+function updateSessionStartPanel() {
+  const startedAt = sessionMeta.sessionStartedAt;
+  els.sessionStartPanel.classList.toggle("is-started", Boolean(startedAt));
+  els.startSessionButton.hidden = Boolean(startedAt);
+  els.sessionStartStatus.textContent = startedAt ? `Iniciada ${formatTime(startedAt)}` : "Rutina sin iniciar";
+}
+
+function getSessionTiming(finishedAt = new Date().toISOString()) {
+  if (!sessionMeta.sessionStartedAt) {
+    return {
+      actualDurationMin: "",
+      cappedDurationMin: "",
+      isOverExpectedDuration: false,
+    };
+  }
+  const expectedDurationMin = Number(sessionMeta.expectedDurationMin) || DEFAULT_EXPECTED_ROUTINE_DURATION_MIN;
+  const actualDurationMin = diffMinutes(sessionMeta.sessionStartedAt, finishedAt);
+  if (actualDurationMin === "") {
+    return {
+      actualDurationMin: "",
+      cappedDurationMin: "",
+      isOverExpectedDuration: false,
+    };
+  }
+  return {
+    actualDurationMin,
+    cappedDurationMin: Math.min(actualDurationMin, expectedDurationMin),
+    isOverExpectedDuration: actualDurationMin > expectedDurationMin,
+  };
+}
+
+function checkLongSession() {
+  if (!sessionMeta.sessionStartedAt || sessionMeta.finishedAt) {
+    els.longSessionAlert.hidden = true;
+    return;
+  }
+  const expectedDurationMin = Number(sessionMeta.expectedDurationMin) || DEFAULT_EXPECTED_ROUTINE_DURATION_MIN;
+  const elapsedMin = diffMinutes(sessionMeta.sessionStartedAt, new Date().toISOString());
+  const exceeded = elapsedMin > expectedDurationMin;
+  sessionMeta.isOverExpectedDuration = exceeded;
+  els.longSessionAlert.hidden = !exceeded || Boolean(sessionMeta.longSessionDismissedAt);
+}
+
+function startLongSessionChecks() {
+  window.clearInterval(longSessionTimer);
+  longSessionTimer = window.setInterval(checkLongSession, LONG_SESSION_CHECK_MS);
+}
+
+function resolveActiveSessionBeforeChange() {
+  if (!hasOpenSession()) return true;
+  const action = window.prompt(
+    "Tienes una rutina anterior sin terminar. Escribe: guardar, continuar o descartar.",
+    "continuar",
+  );
+  const normalized = clean(action).toLowerCase();
+  if (normalized === "guardar") {
+    finishSession();
+    return !hasOpenSession();
+  }
+  if (normalized === "descartar") {
+    if (hasDraftData() && !window.confirm("Hay datos escritos. ¿Descartar esta sesión?")) return false;
+    resetWorkoutSession();
+    renderWorkout();
+    updateSessionStartPanel();
+    return true;
+  }
+  return false;
+}
+
+function hasOpenSession() {
+  return Boolean(sessionMeta.sessionStartedAt && !sessionMeta.finishedAt);
+}
+
+function hasDraftData() {
+  return Array.from(drafts.values()).some((draft) => hasExerciseProgress(draft)) || sessionExercises.length > 0;
 }
 
 function hasWorkoutInput(draft) {
   const hasSetReps = Array.isArray(draft.sets) && draft.sets.some((set) => clean(set?.reps || set));
   return hasSetReps || [draft.reps, draft.legacyReps, draft.weight, draft.notes].some((value) => clean(value));
+}
+
+function hasExerciseProgress(draft) {
+  return hasWorkoutInput(draft || {}) || isExerciseComplete(draft);
+}
+
+function getWorkoutProgress() {
+  const exercises = getWorkoutExercises();
+  const completed = exercises.filter((exercise) => hasExerciseProgress(drafts.get(exercise))).length;
+  const percent = exercises.length ? Math.round((completed / exercises.length) * 100) : 0;
+  return {
+    total: exercises.length,
+    completed,
+    pending: Math.max(0, exercises.length - completed),
+    percent,
+  };
 }
 
 function isExerciseComplete(draft) {
@@ -751,6 +935,7 @@ function restoreSessionDraft() {
     if (stored.routine && state.routines[stored.routine]) currentRoutine = stored.routine;
     if (stored.date) els.sessionDate.value = stored.date;
     sessionExercises = Array.isArray(stored.sessionExercises) ? uniqueExercises(stored.sessionExercises) : [];
+    sessionMeta = { ...createEmptySessionMeta(), ...(stored.sessionMeta || {}) };
     Object.entries(stored.drafts || {}).forEach(([exercise, draft]) => {
       if (draft && typeof draft === "object") drafts.set(exercise, draft);
     });
@@ -761,27 +946,37 @@ function restoreSessionDraft() {
 
 function saveSessionDraft() {
   window.clearTimeout(draftSaveTimer);
-  draftSaveTimer = window.setTimeout(() => {
-    const draftEntries = Object.fromEntries(
-      Array.from(drafts.entries()).filter(
-        ([, draft]) => hasWorkoutInput(draft) || draft.decision !== "hold" || isExerciseComplete(draft),
-      ),
-    );
-    if (!Object.keys(draftEntries).length && !sessionExercises.length) {
-      localStorage.removeItem(DRAFT_KEY);
-      return;
-    }
-    localStorage.setItem(
-      DRAFT_KEY,
-      JSON.stringify({
-        date: els.sessionDate.value || today(),
-        routine: currentRoutine,
-        sessionExercises,
-        drafts: draftEntries,
-        updatedAt: new Date().toISOString(),
-      }),
-    );
-  }, 150);
+  draftSaveTimer = window.setTimeout(persistSessionDraftNow, 150);
+}
+
+function persistSessionDraftNow() {
+  window.clearTimeout(draftSaveTimer);
+  const draftEntries = Object.fromEntries(
+    Array.from(drafts.entries()).filter(
+      ([, draft]) => hasWorkoutInput(draft) || draft.decision !== "hold" || isExerciseComplete(draft) || draft.completedAt,
+    ),
+  );
+  const hasSessionMeta = Boolean(sessionMeta.sessionStartedAt);
+  if (!Object.keys(draftEntries).length && !sessionExercises.length && !hasSessionMeta) {
+    localStorage.removeItem(DRAFT_KEY);
+    return false;
+  }
+  localStorage.setItem(
+    DRAFT_KEY,
+    JSON.stringify({
+      date: els.sessionDate.value || today(),
+      routine: currentRoutine,
+      sessionExercises,
+      sessionMeta: {
+        ...sessionMeta,
+        routineDate: sessionMeta.routineDate || els.sessionDate.value || today(),
+        routineName: sessionMeta.routineName || currentRoutine,
+      },
+      drafts: draftEntries,
+      updatedAt: new Date().toISOString(),
+    }),
+  );
+  return true;
 }
 
 function clearSessionDraft() {
@@ -789,20 +984,54 @@ function clearSessionDraft() {
   localStorage.removeItem(DRAFT_KEY);
 }
 
+function saveProgressCheckpoint() {
+  if (!getWorkoutProgress().completed && !sessionExercises.length && !sessionMeta.sessionStartedAt) {
+    showToast("Añade algún dato antes de guardar");
+    return;
+  }
+  persistSessionDraftNow();
+  saveState();
+  showToast("Progreso guardado");
+}
+
+function finishSession(options = {}) {
+  const progress = getWorkoutProgress();
+  if (!options.force && progress.pending > 2) {
+    showToast("Termina más ejercicios antes de cerrar");
+    updateSessionCount();
+    return;
+  }
+  if (!window.confirm("¿Guardar y terminar este entreno? Se limpiarán los campos actuales.")) return;
+  saveSession();
+}
+
 function saveSession() {
   const sessionDate = els.sessionDate.value || today();
   const rows = Array.from(drafts.entries())
     .map(([exercise, draft]) => ({ exercise, draft }))
-    .filter(({ draft }) => hasWorkoutInput(draft));
+    .filter(({ draft }) => hasExerciseProgress(draft));
 
   if (!rows.length) {
-    showToast("Añade reps, peso o notas antes de guardar");
+    showToast("Añade algún dato antes de guardar");
     return;
   }
+  if (!sessionMeta.sessionStartedAt) startSession("fallback_first_completion", { silent: true });
+  const finishedAt = new Date().toISOString();
+  const timing = getSessionTiming(finishedAt);
+  sessionMeta = {
+    ...sessionMeta,
+    finishedAt,
+    routineDate: sessionDate,
+    routineName: currentRoutine,
+    expectedDurationMin: Number(sessionMeta.expectedDurationMin) || DEFAULT_EXPECTED_ROUTINE_DURATION_MIN,
+    ...timing,
+  };
+  const exerciseTimings = buildExerciseTimingMap(rows, sessionMeta.sessionStartedAt);
 
   const savedRows = rows.map(({ exercise, draft }) => {
     const sets = normalizeSets(draft.sets || []).filter((set) => clean(set.reps));
     const reps = sets.length ? formatSetsReps(sets) : clean(draft.reps || draft.legacyReps);
+    const exerciseTiming = exerciseTimings.get(exercise) || {};
     return entry(
       sessionDate,
       currentRoutine,
@@ -814,6 +1043,17 @@ function saveSession() {
       {
         sets,
         legacyReps: sets.length ? clean(draft.legacyReps) : clean(draft.legacyReps || draft.reps),
+        sessionStartedAt: sessionMeta.sessionStartedAt,
+        sessionStartSource: sessionMeta.sessionStartSource,
+        routineFinishedAt: sessionMeta.finishedAt,
+        expectedDurationMin: sessionMeta.expectedDurationMin,
+        actualDurationMin: sessionMeta.actualDurationMin,
+        cappedDurationMin: sessionMeta.cappedDurationMin,
+        isOverExpectedDuration: sessionMeta.isOverExpectedDuration,
+        exerciseCompletedAt: draft.completedAt || "",
+        completedAtSource: draft.completedAtSource || "",
+        elapsedFromSessionStartMin: exerciseTiming.elapsedFromSessionStartMin ?? "",
+        estimatedExerciseDurationMin: exerciseTiming.estimatedExerciseDurationMin ?? "",
       },
     );
   });
@@ -825,16 +1065,52 @@ function saveSession() {
   const summary = buildWorkoutSummary(savedRows, {
     routine: currentRoutine,
     date: sessionDate,
+    ...sessionMeta,
   });
 
-  drafts.clear();
-  sessionExercises = [];
-  clearSessionDraft();
+  resetWorkoutSession();
   saveState();
   renderWorkout();
   renderHistory();
-  showToast("Entreno guardado");
-  maybeOpenEmailSummary(summary, currentRoutine, sessionDate);
+  const emailStatus = maybeOpenEmailSummary(summary, currentRoutine, sessionDate);
+  const messages = {
+    opened: "Entreno guardado. Abriendo email resumen",
+    disabled: "Entreno guardado. Email resumen desactivado",
+    copied: "Entreno guardado. Resumen largo copiado",
+    copy_failed: "Entreno guardado. Resumen largo: copia manual",
+  };
+  showToast(messages[emailStatus] || "Entreno guardado");
+}
+
+function resetWorkoutSession() {
+  window.clearTimeout(draftSaveTimer);
+  drafts.clear();
+  sessionExercises = [];
+  sessionMeta = createEmptySessionMeta();
+  els.sessionDate.value = today();
+  els.exerciseList.querySelectorAll("input, textarea").forEach((field) => {
+    field.value = "";
+  });
+  clearSessionDraft();
+  updateSessionStartPanel();
+  checkLongSession();
+}
+
+function buildExerciseTimingMap(rows, startedAt) {
+  const timing = new Map();
+  if (!startedAt) return timing;
+  const completedRows = rows
+    .map(({ exercise, draft }) => ({ exercise, completedAt: draft.completedAt }))
+    .filter((item) => item.completedAt)
+    .sort((a, b) => a.completedAt.localeCompare(b.completedAt));
+  completedRows.forEach((item, index) => {
+    const previousAt = index === 0 ? startedAt : completedRows[index - 1].completedAt;
+    timing.set(item.exercise, {
+      elapsedFromSessionStartMin: diffMinutes(startedAt, item.completedAt),
+      estimatedExerciseDurationMin: diffMinutes(previousAt, item.completedAt),
+    });
+  });
+  return timing;
 }
 
 function renderHistory() {
@@ -858,12 +1134,58 @@ function renderHistory() {
           <strong>${escapeHtml(item.exercise)}</strong>
           <small>${escapeHtml(item.date)} · ${escapeHtml(item.routine)}</small>
         </span>
-        <span class="status-badge status-${item.decision || "hold"}">${decisionText(item.decision)}</span>
+        <div class="history-actions">
+          <span class="status-badge status-${item.decision || "hold"}">${decisionText(item.decision)}</span>
+          <button class="small-icon-button history-delete-button" type="button" aria-label="Eliminar registro de ${escapeHtml(item.exercise)}" title="Eliminar registro">×</button>
+        </div>
       </div>
       <div class="history-detail">${escapeHtml(formatHistoryReps(item) || "-")} · ${escapeHtml(item.weight || "-")} kg${item.notes ? ` · ${escapeHtml(item.notes)}` : ""}</div>
     `;
+    row.querySelector(".history-delete-button").addEventListener("click", () => deleteHistoryEntry(item));
     els.historyList.append(row);
   });
+}
+
+function deleteHistoryEntry(item) {
+  const label = `${item.date || "-"} · ${item.routine || "-"} · ${item.exercise || "-"}`;
+  if (!window.confirm(`¿Eliminar este registro?\n${label}`)) return;
+  const before = state.history.length;
+  if (item.id) {
+    state.history = state.history.filter((entryItem) => entryItem.id !== item.id);
+  } else {
+    const index = state.history.indexOf(item);
+    if (index >= 0) state.history.splice(index, 1);
+  }
+  if (state.history.length === before) {
+    showToast("No pude eliminar ese registro");
+    return;
+  }
+  saveState();
+  refreshAfterHistoryChange();
+  showToast("Registro eliminado");
+}
+
+function deleteWorkoutSession(session) {
+  const warning =
+    "¿Seguro que quieres borrar esta rutina completa? Esta acción eliminará también los ejercicios registrados en ella y no se puede deshacer.";
+  if (!window.confirm(`${warning}\n\n${session.date} · ${session.routine}`)) return;
+  const before = state.history.length;
+  state.history = state.history.filter((item) => getHistorySessionKey(item) !== session.key);
+  const deleted = before - state.history.length;
+  if (!deleted) {
+    showToast("No pude eliminar esa rutina");
+    return;
+  }
+  saveState();
+  refreshAfterHistoryChange();
+  showToast("Rutina eliminada");
+}
+
+function refreshAfterHistoryChange() {
+  renderHistory();
+  renderCalendar();
+  renderRoutineControls();
+  renderWorkout();
 }
 
 function openExerciseModal(exercise) {
@@ -906,96 +1228,103 @@ function closeExerciseModal() {
   document.body.classList.remove("modal-open");
 }
 
-function saveMetric() {
-  const weight = toNumber(els.bodyWeightInput.value);
-  const waist = toNumber(els.waistInput.value);
-  if (!weight && !waist) {
-    showToast("Añade peso corporal o cintura");
-    return;
+function renderCalendar() {
+  const monthValue = els.calendarMonthInput.value || currentMonthValue();
+  els.calendarMonthInput.value = monthValue;
+  const monthItems = getMonthWorkoutEntries(monthValue);
+  renderCalendarGrid(monthValue, monthItems);
+  renderMonthWorkoutList(monthItems);
+}
+
+function renderCalendarGrid(monthValue, monthItems) {
+  const [year, month] = monthValue.split("-").map(Number);
+  const firstDay = new Date(year, month - 1, 1);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const mondayOffset = (firstDay.getDay() + 6) % 7;
+  const activeDays = new Set(monthItems.map((item) => item.date.slice(-2)));
+  els.calendarGrid.innerHTML = "";
+
+  ["L", "M", "X", "J", "V", "S", "D"].forEach((day) => {
+    const cell = document.createElement("div");
+    cell.className = "calendar-weekday";
+    cell.textContent = day;
+    els.calendarGrid.append(cell);
+  });
+
+  Array.from({ length: mondayOffset }).forEach(() => {
+    const cell = document.createElement("div");
+    cell.className = "calendar-day is-empty";
+    els.calendarGrid.append(cell);
+  });
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const dayKey = String(day).padStart(2, "0");
+    const cell = document.createElement("div");
+    cell.className = `calendar-day${activeDays.has(dayKey) ? " is-active" : ""}`;
+    cell.textContent = day;
+    els.calendarGrid.append(cell);
   }
-  state.metrics.unshift({ date: els.metricDate.value || today(), weight: weight || "", waist: waist || "" });
-  saveState();
-  els.bodyWeightInput.value = "";
-  els.waistInput.value = "";
-  renderMetrics();
-  showToast("Medida guardada");
 }
 
-function renderMetrics() {
-  els.metricList.innerHTML = "";
-  state.metrics
-    .slice()
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .forEach((item) => {
-      const row = document.createElement("article");
-      row.className = "metric-item";
-      row.innerHTML = `
-        <strong>${escapeHtml(item.date)}</strong>
-        <span>${item.weight ? `${item.weight} kg` : "-"} · ${item.waist ? `${item.waist} cm` : "-"}</span>
-      `;
-      els.metricList.append(row);
-    });
-  drawChart();
-}
-
-function drawChart() {
-  const canvas = els.bodyChart;
-  const ctx = canvas.getContext("2d");
-  const data = state.metrics
-    .filter((item) => item.weight)
-    .slice()
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  if (data.length < 2) {
-    ctx.fillStyle = "#65706c";
-    ctx.font = "28px sans-serif";
-    ctx.fillText("Añade más medidas para ver tendencia", 40, 180);
+function renderMonthWorkoutList(items) {
+  els.monthWorkoutList.innerHTML = "";
+  if (!items.length) {
+    els.monthWorkoutList.innerHTML = `<article class="month-empty">No hay rutinas registradas en este mes.</article>`;
     return;
   }
 
-  const padding = 48;
-  const values = data.map((item) => Number(item.weight));
-  const min = Math.min(...values) - 0.5;
-  const max = Math.max(...values) + 0.5;
-  const width = canvas.width - padding * 2;
-  const height = canvas.height - padding * 2;
-
-  ctx.strokeStyle = "#d9ddd5";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(padding, padding);
-  ctx.lineTo(padding, padding + height);
-  ctx.lineTo(padding + width, padding + height);
-  ctx.stroke();
-
-  ctx.strokeStyle = "#1f7a64";
-  ctx.lineWidth = 5;
-  ctx.beginPath();
-  data.forEach((item, index) => {
-    const x = padding + (index / (data.length - 1)) * width;
-    const y = padding + height - ((Number(item.weight) - min) / (max - min)) * height;
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+  const table = document.createElement("div");
+  table.className = "month-table";
+  table.innerHTML = `<div class="month-table-head"><span>Fecha</span><span>Rutina</span><span>Acción</span></div>`;
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "month-table-row";
+    row.innerHTML = `
+      <span>${escapeHtml(item.date)}</span>
+      <strong>${escapeHtml(item.routine || "-")}</strong>
+      <button class="small-icon-button calendar-delete-button" type="button" aria-label="Borrar ${escapeHtml(item.routine || "rutina")}" title="Borrar rutina">×</button>
+    `;
+    row.querySelector(".calendar-delete-button").addEventListener("click", () => deleteWorkoutSession(item));
+    table.append(row);
   });
-  ctx.stroke();
+  els.monthWorkoutList.append(table);
+}
 
-  data.forEach((item, index) => {
-    const x = padding + (index / (data.length - 1)) * width;
-    const y = padding + height - ((Number(item.weight) - min) / (max - min)) * height;
-    ctx.fillStyle = "#101313";
-    ctx.beginPath();
-    ctx.arc(x, y, 7, 0, Math.PI * 2);
-    ctx.fill();
+function getMonthWorkoutEntries(monthValue) {
+  const sessions = new Map();
+  state.history.forEach((item) => {
+    if (!isIsoDate(item.date) || !item.date.startsWith(`${monthValue}-`) || !item.routine) return;
+    const key = getHistorySessionKey(item);
+    if (!sessions.has(key)) {
+      sessions.set(key, {
+        key,
+        date: item.date,
+        routine: item.routine,
+        sessionStartedAt: item.sessionStartedAt || "",
+        routineFinishedAt: item.routineFinishedAt || "",
+      });
+    }
   });
+  return [...sessions.values()].sort(
+    (a, b) =>
+      b.date.localeCompare(a.date) ||
+      String(b.routineFinishedAt || b.sessionStartedAt).localeCompare(String(a.routineFinishedAt || a.sessionStartedAt)) ||
+      String(a.routine).localeCompare(String(b.routine)),
+  );
+}
 
-  ctx.fillStyle = "#65706c";
-  ctx.font = "24px sans-serif";
-  ctx.fillText(`${min.toFixed(1)} kg`, padding, padding + height + 32);
-  ctx.fillText(`${max.toFixed(1)} kg`, padding, padding - 14);
+function getHistorySessionKey(item) {
+  const sessionToken = item.workoutSessionId || item.routineFinishedAt || item.sessionStartedAt || "";
+  const date = String(item.date || "").trim();
+  const routine = String(item.routine || "").trim();
+  return sessionToken ? `${date}|${routine}|${sessionToken}` : `legacy|${date}|${routine}`;
+}
+
+function changeCalendarMonth(offset) {
+  const [year, month] = (els.calendarMonthInput.value || currentMonthValue()).split("-").map(Number);
+  const next = new Date(year, month - 1 + offset, 1);
+  els.calendarMonthInput.value = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
+  renderCalendar();
 }
 
 function getLatest(exercise) {
@@ -1062,8 +1391,15 @@ function formatSetsReps(sets) {
 }
 
 function buildWorkoutSummary(rows, session) {
-  const header = [`${session.routine} · ${session.date}`];
-  const table = ["Ejercicio | Peso | Series | Reps | Estado | Notas"];
+  const header = [
+    `${session.routine} · ${session.date}`,
+    `Inicio entreno: ${formatTime(session.sessionStartedAt)}`,
+    `Fin entreno: ${formatTime(session.finishedAt)}`,
+    `Duración total: ${formatDuration(session.actualDurationMin)}`,
+    `Duración esperada: ${session.expectedDurationMin || DEFAULT_EXPECTED_ROUTINE_DURATION_MIN} min`,
+    `Estado: ${session.isOverExpectedDuration ? "Superó el tiempo estimado" : "Dentro del tiempo estimado"}`,
+  ];
+  const table = ["Ejercicio | Peso | Series | Reps | Progreso | Hora completado | Duración aprox. | Notas"];
   rows.forEach((row) => {
     const sets = getHistorySets(row);
     table.push(
@@ -1073,6 +1409,8 @@ function buildWorkoutSummary(rows, session) {
         sets.length || "-",
         formatHistoryReps(row) || "-",
         decisionText(row.decision),
+        row.exerciseCompletedAt ? formatTime(row.exerciseCompletedAt) : "-",
+        formatDuration(row.estimatedExerciseDurationMin),
         row.notes || row.legacyReps || "-",
       ].join(" | "),
     );
@@ -1091,20 +1429,28 @@ function estimateWorkoutVolume(rows) {
 }
 
 function maybeOpenEmailSummary(body, routine, date) {
-  if (!state.settings.emailSummaryEnabled) return;
+  if (!state.settings.emailSummaryEnabled) return "disabled";
   const subject = `${routine} · ${date}`;
   const mailto = `mailto:kelvinstarlin.feliz@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  if (mailto.length < 1800) {
-    window.location.href = mailto;
-    return;
+  if (mailto.length < 8000) {
+    const link = document.createElement("a");
+    link.href = mailto;
+    link.target = "_self";
+    link.rel = "noopener";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    return "opened";
   }
   if (navigator.clipboard?.writeText) {
     navigator.clipboard.writeText(body).then(
       () => showToast("Resumen muy largo: copiado al portapapeles"),
       () => showToast("Resumen muy largo: copia manual desde historial"),
     );
+    return "copied";
   } else {
     showToast("Resumen muy largo para abrir email");
+    return "copy_failed";
   }
 }
 
@@ -1120,6 +1466,17 @@ function exportCsv() {
     "Notas",
     "Decision",
     "Reps antiguas",
+    "sessionStartedAt",
+    "sessionStartSource",
+    "routineFinishedAt",
+    "expectedDurationMin",
+    "actualDurationMin",
+    "cappedDurationMin",
+    "isOverExpectedDuration",
+    "exerciseCompletedAt",
+    "completedAtSource",
+    "elapsedFromSessionStartMin",
+    "estimatedExerciseDurationMin",
   ];
   const rows = state.history
     .slice()
@@ -1137,6 +1494,17 @@ function exportCsv() {
         item.notes,
         decisionText(item.decision),
         item.legacyReps || (!sets.length ? item.reps : ""),
+        item.sessionStartedAt,
+        item.sessionStartSource,
+        item.routineFinishedAt,
+        item.expectedDurationMin,
+        item.actualDurationMin,
+        item.cappedDurationMin,
+        item.isOverExpectedDuration,
+        item.exerciseCompletedAt,
+        item.completedAtSource,
+        item.elapsedFromSessionStartMin,
+        item.estimatedExerciseDurationMin,
       ];
     });
   download("registro-gym.csv", [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n"), "text/csv");
@@ -1161,12 +1529,15 @@ function importJson(event) {
       els.emailSummaryEnabled.checked = Boolean(state.settings.emailSummaryEnabled);
       drafts.clear();
       sessionExercises = [];
+      sessionMeta = createEmptySessionMeta();
       clearSessionDraft();
       renderRoutineControls();
       renderWorkout();
       renderHistory();
-      renderMetrics();
+      renderCalendar();
       renderRoutineManager();
+      updateSessionStartPanel();
+      checkLongSession();
       showToast("Copia importada");
     } catch {
       showToast("No pude importar ese archivo");
@@ -1228,8 +1599,34 @@ function tidyNumber(value) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
 }
 
+function diffMinutes(start, end) {
+  const startTime = Date.parse(start);
+  const endTime = Date.parse(end);
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime < startTime) return "";
+  return Math.round((endTime - startTime) / 60000);
+}
+
 function today() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function currentMonthValue() {
+  return today().slice(0, 7);
+}
+
+function isIsoDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+}
+
+function formatTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatDuration(value) {
+  return value === "" || value === undefined || value === null ? "-" : `${value} min`;
 }
 
 function formatShortDate(value) {
