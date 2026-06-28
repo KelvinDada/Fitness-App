@@ -205,6 +205,8 @@ input,
 select,
 textarea {
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
@@ -507,6 +509,8 @@ textarea:focus {
   position: sticky;
   bottom: calc(74px + env(safe-area-inset-bottom));
   z-index: 5;
+  display: grid;
+  gap: 8px;
   margin-top: 16px;
 }
 
@@ -528,6 +532,10 @@ textarea:focus {
   color: #fff;
   background: var(--dark);
   box-shadow: var(--shadow);
+}
+
+.finish-button[hidden] {
+  display: none;
 }
 
 .secondary-button,
@@ -905,6 +913,29 @@ canvas {
     margin-left: -24px;
     padding-right: 24px;
     padding-left: 24px;
+  }
+}
+
+@media (max-width: 767px) {
+  .session-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .session-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+  }
+
+  .session-meta label,
+  .session-meta input,
+  .session-meta select {
+    min-width: 0;
+  }
+
+  .session-summary {
+    grid-column: auto;
+    grid-row: auto;
+    min-height: 64px;
   }
 }
 
