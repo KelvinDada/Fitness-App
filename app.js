@@ -135,6 +135,7 @@ let state = loadState();
 let currentRoutine = state.lastRoutine && state.routines[state.lastRoutine] ? state.lastRoutine : Object.keys(state.routines)[0];
 const drafts = new Map();
 let sessionExercises = [];
+let sessionSkippedExercises = [];
 let sessionMeta = createEmptySessionMeta();
 let draftSaveTimer;
 let sessionAddMode = "today";
@@ -422,6 +423,7 @@ function renderWorkout(openExercise = "") {
     card.querySelector(".history-button").addEventListener("click", () => openExerciseModal(exercise));
     card.querySelector(".copy-previous-button").disabled = !latest;
     card.querySelector(".copy-previous-button").addEventListener("click", () => copyPreviousWorkout(exercise, latest));
+    card.querySelector(".skip-exercise-button").addEventListener("click", () => skipExerciseForToday(exercise));
     card.querySelector(".add-set-button").addEventListener("click", () => addSet(exercise, latest));
     card.querySelector(".remove-set-button").addEventListener("click", () => removeSet(exercise, latest));
 
@@ -453,7 +455,10 @@ function renderWorkout(openExercise = "") {
 }
 
 function getWorkoutExercises() {
-  return uniqueExercises([...(state.routines[currentRoutine] || []), ...sessionExercises]);
+  const skipped = sessionSkippedExercises.map((exercise) => cleanExerciseName(exercise).toLowerCase());
+  return uniqueExercises([...(state.routines[currentRoutine] || []), ...sessionExercises]).filter(
+    (exercise) => !skipped.some((skippedExercise) => sameName(skippedExercise, exercise)),
+  );
 }
 
 function setExerciseStats(element, draft, latest) {
@@ -471,9 +476,7 @@ function getExerciseCardStatsHtml(draft, latest) {
       values.length ? `<span>${values.join(" · ")}</span>` : "",
     ].filter(Boolean).join(" ");
   }
-  return latest
-    ? `${escapeHtml(formatLongDate(latest.date))} · ${escapeHtml(formatHistoryReps(latest) || "sin reps")} · ${escapeHtml(latest.weight || "sin peso")}`
-    : "Sin registros previos";
+  return latest ? "Pendiente" : "Sin registros previos";
 }
 
 function renderSetInputs(card, exercise, sets) {
@@ -580,6 +583,19 @@ function copyPreviousWorkout(exercise, latest) {
   showToast("Anterior copiado");
 }
 
+function skipExerciseForToday(exercise) {
+  const draft = drafts.get(exercise);
+  if (hasExerciseProgress(draft) && !window.confirm("Este ejercicio ya tiene datos escritos. ¿Omitirlo solo por hoy?")) return;
+  drafts.delete(exercise);
+  sessionExercises = sessionExercises.filter((item) => !sameName(item, exercise));
+  if ((state.routines[currentRoutine] || []).some((item) => sameName(item, exercise))) {
+    sessionSkippedExercises = uniqueExercises([...sessionSkippedExercises, exercise]);
+  }
+  saveSessionDraft();
+  renderWorkout();
+  showToast("Ejercicio omitido hoy");
+}
+
 function setSessionAddMode(mode) {
   sessionAddMode = mode;
   els.addForTodayButton.classList.toggle("is-selected", mode === "today");
@@ -595,6 +611,14 @@ function addSessionExercise() {
   const baseExercises = state.routines[currentRoutine] || [];
   if (getWorkoutExercises().some((item) => sameName(item, exercise))) {
     showToast("Ese ejercicio ya está en la sesión");
+    return;
+  }
+  if (sessionSkippedExercises.some((item) => sameName(item, exercise))) {
+    sessionSkippedExercises = sessionSkippedExercises.filter((item) => !sameName(item, exercise));
+    saveSessionDraft();
+    els.sessionExerciseInput.value = "";
+    renderWorkout(exercise);
+    showToast("Ejercicio recuperado");
     return;
   }
 
@@ -900,7 +924,11 @@ function hasOpenSession() {
 }
 
 function hasDraftData() {
-  return Array.from(drafts.values()).some((draft) => hasExerciseProgress(draft)) || sessionExercises.length > 0;
+  return (
+    Array.from(drafts.values()).some((draft) => hasExerciseProgress(draft)) ||
+    sessionExercises.length > 0 ||
+    sessionSkippedExercises.length > 0
+  );
 }
 
 function hasWorkoutInput(draft) {
@@ -935,6 +963,7 @@ function restoreSessionDraft() {
     if (stored.routine && state.routines[stored.routine]) currentRoutine = stored.routine;
     if (stored.date) els.sessionDate.value = stored.date;
     sessionExercises = Array.isArray(stored.sessionExercises) ? uniqueExercises(stored.sessionExercises) : [];
+    sessionSkippedExercises = Array.isArray(stored.sessionSkippedExercises) ? uniqueExercises(stored.sessionSkippedExercises) : [];
     sessionMeta = { ...createEmptySessionMeta(), ...(stored.sessionMeta || {}) };
     Object.entries(stored.drafts || {}).forEach(([exercise, draft]) => {
       if (draft && typeof draft === "object") drafts.set(exercise, draft);
@@ -957,7 +986,7 @@ function persistSessionDraftNow() {
     ),
   );
   const hasSessionMeta = Boolean(sessionMeta.sessionStartedAt);
-  if (!Object.keys(draftEntries).length && !sessionExercises.length && !hasSessionMeta) {
+  if (!Object.keys(draftEntries).length && !sessionExercises.length && !sessionSkippedExercises.length && !hasSessionMeta) {
     localStorage.removeItem(DRAFT_KEY);
     return false;
   }
@@ -967,6 +996,7 @@ function persistSessionDraftNow() {
       date: els.sessionDate.value || today(),
       routine: currentRoutine,
       sessionExercises,
+      sessionSkippedExercises,
       sessionMeta: {
         ...sessionMeta,
         routineDate: sessionMeta.routineDate || els.sessionDate.value || today(),
@@ -985,7 +1015,7 @@ function clearSessionDraft() {
 }
 
 function saveProgressCheckpoint() {
-  if (!getWorkoutProgress().completed && !sessionExercises.length && !sessionMeta.sessionStartedAt) {
+  if (!getWorkoutProgress().completed && !sessionExercises.length && !sessionSkippedExercises.length && !sessionMeta.sessionStartedAt) {
     showToast("Añade algún dato antes de guardar");
     return;
   }
@@ -1086,6 +1116,7 @@ function resetWorkoutSession() {
   window.clearTimeout(draftSaveTimer);
   drafts.clear();
   sessionExercises = [];
+  sessionSkippedExercises = [];
   sessionMeta = createEmptySessionMeta();
   els.sessionDate.value = today();
   els.exerciseList.querySelectorAll("input, textarea").forEach((field) => {
@@ -1529,6 +1560,7 @@ function importJson(event) {
       els.emailSummaryEnabled.checked = Boolean(state.settings.emailSummaryEnabled);
       drafts.clear();
       sessionExercises = [];
+      sessionSkippedExercises = [];
       sessionMeta = createEmptySessionMeta();
       clearSessionDraft();
       renderRoutineControls();

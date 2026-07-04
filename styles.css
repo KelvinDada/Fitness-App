@@ -381,13 +381,14 @@ textarea:focus {
 
 .exercise-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr auto;
   gap: 8px;
   margin-bottom: 10px;
 }
 
 .history-button,
-.copy-previous-button {
+.copy-previous-button,
+.skip-exercise-button {
   display: inline-flex;
   width: 100%;
   min-height: 40px;
@@ -399,6 +400,12 @@ textarea:focus {
   background: #fff;
   font-size: 0.86rem;
   font-weight: 850;
+}
+
+.skip-exercise-button {
+  width: auto;
+  padding: 0 12px;
+  color: #7d2f37;
 }
 
 .copy-previous-button:disabled {
