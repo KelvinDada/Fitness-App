@@ -730,6 +730,10 @@ textarea:focus {
   font-weight: 850;
 }
 
+button.calendar-day {
+  cursor: pointer;
+}
+
 .calendar-day.is-empty {
   border-color: transparent;
   background: transparent;
@@ -740,6 +744,32 @@ textarea:focus {
   color: #0e5d4a;
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px rgba(31, 122, 100, 0.18);
+}
+
+.calendar-day.is-selected {
+  border-color: var(--dark);
+  box-shadow: inset 0 0 0 2px var(--dark);
+}
+
+.calendar-add-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 24px rgba(19, 24, 23, 0.06);
+}
+
+.calendar-add-panel h2 {
+  margin: 0;
+}
+
+.free-workout-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 10px;
 }
 
 .month-workout-list {
@@ -784,9 +814,18 @@ textarea:focus {
 }
 
 .month-table-row strong {
+  display: grid;
+  gap: 3px;
   min-width: 0;
   overflow-wrap: anywhere;
   font-size: 0.9rem;
+}
+
+.month-table-row strong small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.25;
 }
 
 .calendar-delete-button {
@@ -1125,6 +1164,7 @@ textarea:focus {
   }
 
   .session-start-panel,
+  .free-workout-grid,
   .long-session-alert div {
     grid-template-columns: 1fr;
   }

@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#101313" />
     <title>Registro Gym</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=20260705-skip-exercise" />
+    <link rel="stylesheet" href="./styles.css?v=20260814-freeform-calendar" />
   </head>
   <body>
     <div class="app-shell">
@@ -96,6 +96,24 @@
               <button class="small-icon-button" id="nextMonthButton" type="button" aria-label="Mes siguiente" title="Mes siguiente">›</button>
             </div>
             <div class="calendar-grid" id="calendarGrid" aria-label="Calendario mensual"></div>
+          </section>
+          <section class="calendar-add-panel">
+            <h2>Registro suelto</h2>
+            <div class="free-workout-grid">
+              <label>
+                <span>Fecha</span>
+                <input id="freeWorkoutDate" type="date" />
+              </label>
+              <label>
+                <span>Entreno</span>
+                <input id="freeWorkoutName" placeholder="Ej. Cardio suave, movilidad, paseo largo..." />
+              </label>
+            </div>
+            <label>
+              <span>Descripción breve</span>
+              <textarea id="freeWorkoutNotes" rows="3" placeholder="Qué hiciste, sensaciones, duración aproximada..."></textarea>
+            </label>
+            <button class="secondary-button" id="saveFreeWorkoutButton" type="button">Añadir registro</button>
           </section>
           <div class="month-workout-list" id="monthWorkoutList"></div>
         </section>
@@ -234,7 +252,7 @@
         <div class="exercise-timeline" id="exerciseTimeline"></div>
       </section>
     </div>
-    <script src="./seed-history.js?v=20260705-skip-exercise"></script>
-    <script src="./app.js?v=20260705-skip-exercise"></script>
+    <script src="./seed-history.js?v=20260814-freeform-calendar"></script>
+    <script src="./app.js?v=20260814-freeform-calendar"></script>
   </body>
 </html>

@@ -168,6 +168,10 @@ const els = {
   prevMonthButton: document.querySelector("#prevMonthButton"),
   nextMonthButton: document.querySelector("#nextMonthButton"),
   calendarGrid: document.querySelector("#calendarGrid"),
+  freeWorkoutDate: document.querySelector("#freeWorkoutDate"),
+  freeWorkoutName: document.querySelector("#freeWorkoutName"),
+  freeWorkoutNotes: document.querySelector("#freeWorkoutNotes"),
+  saveFreeWorkoutButton: document.querySelector("#saveFreeWorkoutButton"),
   monthWorkoutList: document.querySelector("#monthWorkoutList"),
   exportCsvButton: document.querySelector("#exportCsvButton"),
   exportJsonButton: document.querySelector("#exportJsonButton"),
@@ -190,6 +194,7 @@ function init() {
   restoreSessionDraft();
   els.sessionDate.value ||= today();
   els.calendarMonthInput.value = currentMonthValue();
+  els.freeWorkoutDate.value = today();
   els.dumbbellStep.value = state.settings.dumbbellStep;
   els.machineStep.value = state.settings.machineStep;
   els.emailSummaryEnabled.checked = Boolean(state.settings.emailSummaryEnabled);
@@ -303,6 +308,13 @@ function bindEvents() {
   els.calendarMonthInput.addEventListener("change", renderCalendar);
   els.prevMonthButton.addEventListener("click", () => changeCalendarMonth(-1));
   els.nextMonthButton.addEventListener("click", () => changeCalendarMonth(1));
+  els.freeWorkoutDate.addEventListener("change", () => {
+    if (isIsoDate(els.freeWorkoutDate.value)) {
+      els.calendarMonthInput.value = els.freeWorkoutDate.value.slice(0, 7);
+      renderCalendar();
+    }
+  });
+  els.saveFreeWorkoutButton.addEventListener("click", saveFreeWorkout);
   els.exportCsvButton.addEventListener("click", exportCsv);
   els.exportJsonButton.addEventListener("click", exportJson);
   els.importJsonInput.addEventListener("change", importJson);
@@ -1148,7 +1160,7 @@ function renderHistory() {
   const query = els.historySearch.value.trim().toLowerCase();
   els.historyList.innerHTML = "";
   const items = state.history
-    .filter((item) => !query || `${item.exercise} ${item.routine} ${item.date}`.toLowerCase().includes(query))
+    .filter((item) => !query || `${item.exercise} ${item.routine} ${item.date} ${item.notes || ""}`.toLowerCase().includes(query))
     .slice(0, 120);
 
   if (!items.length) {
@@ -1170,7 +1182,7 @@ function renderHistory() {
           <button class="small-icon-button history-delete-button" type="button" aria-label="Eliminar registro de ${escapeHtml(item.exercise)}" title="Eliminar registro">×</button>
         </div>
       </div>
-      <div class="history-detail">${escapeHtml(formatHistoryReps(item) || "-")} · ${escapeHtml(item.weight || "-")} kg${item.notes ? ` · ${escapeHtml(item.notes)}` : ""}</div>
+      <div class="history-detail">${getHistoryDetailHtml(item)}</div>
     `;
     row.querySelector(".history-delete-button").addEventListener("click", () => deleteHistoryEntry(item));
     els.historyList.append(row);
@@ -1197,8 +1209,9 @@ function deleteHistoryEntry(item) {
 }
 
 function deleteWorkoutSession(session) {
-  const warning =
-    "¿Seguro que quieres borrar esta rutina completa? Esta acción eliminará también los ejercicios registrados en ella y no se puede deshacer.";
+  const warning = session.entryType === "freeform"
+    ? "¿Seguro que quieres borrar este registro suelto? Esta acción no se puede deshacer."
+    : "¿Seguro que quieres borrar esta rutina completa? Esta acción eliminará también los ejercicios registrados en ella y no se puede deshacer.";
   if (!window.confirm(`${warning}\n\n${session.date} · ${session.routine}`)) return;
   const before = state.history.length;
   state.history = state.history.filter((item) => getHistorySessionKey(item) !== session.key);
@@ -1273,6 +1286,7 @@ function renderCalendarGrid(monthValue, monthItems) {
   const daysInMonth = new Date(year, month, 0).getDate();
   const mondayOffset = (firstDay.getDay() + 6) % 7;
   const activeDays = new Set(monthItems.map((item) => item.date.slice(-2)));
+  const selectedDate = els.freeWorkoutDate.value;
   els.calendarGrid.innerHTML = "";
 
   ["L", "M", "X", "J", "V", "S", "D"].forEach((day) => {
@@ -1290,9 +1304,16 @@ function renderCalendarGrid(monthValue, monthItems) {
 
   for (let day = 1; day <= daysInMonth; day += 1) {
     const dayKey = String(day).padStart(2, "0");
-    const cell = document.createElement("div");
-    cell.className = `calendar-day${activeDays.has(dayKey) ? " is-active" : ""}`;
+    const date = `${monthValue}-${dayKey}`;
+    const cell = document.createElement("button");
+    cell.type = "button";
+    cell.className = [
+      "calendar-day",
+      activeDays.has(dayKey) ? "is-active" : "",
+      selectedDate === date ? "is-selected" : "",
+    ].filter(Boolean).join(" ");
     cell.textContent = day;
+    cell.addEventListener("click", () => selectCalendarDate(date));
     els.calendarGrid.append(cell);
   }
 }
@@ -1300,7 +1321,7 @@ function renderCalendarGrid(monthValue, monthItems) {
 function renderMonthWorkoutList(items) {
   els.monthWorkoutList.innerHTML = "";
   if (!items.length) {
-    els.monthWorkoutList.innerHTML = `<article class="month-empty">No hay rutinas registradas en este mes.</article>`;
+    els.monthWorkoutList.innerHTML = `<article class="month-empty">No hay entrenos registrados en este mes.</article>`;
     return;
   }
 
@@ -1312,7 +1333,7 @@ function renderMonthWorkoutList(items) {
     row.className = "month-table-row";
     row.innerHTML = `
       <span>${escapeHtml(item.date)}</span>
-      <strong>${escapeHtml(item.routine || "-")}</strong>
+      <strong>${escapeHtml(item.routine || "-")}${item.notes ? `<small>${escapeHtml(item.notes)}</small>` : ""}</strong>
       <button class="small-icon-button calendar-delete-button" type="button" aria-label="Borrar ${escapeHtml(item.routine || "rutina")}" title="Borrar rutina">×</button>
     `;
     row.querySelector(".calendar-delete-button").addEventListener("click", () => deleteWorkoutSession(item));
@@ -1331,6 +1352,8 @@ function getMonthWorkoutEntries(monthValue) {
         key,
         date: item.date,
         routine: item.routine,
+        notes: item.entryType === "freeform" ? item.notes || "" : "",
+        entryType: item.entryType || "",
         sessionStartedAt: item.sessionStartedAt || "",
         routineFinishedAt: item.routineFinishedAt || "",
       });
@@ -1345,10 +1368,43 @@ function getMonthWorkoutEntries(monthValue) {
 }
 
 function getHistorySessionKey(item) {
-  const sessionToken = item.workoutSessionId || item.routineFinishedAt || item.sessionStartedAt || "";
+  const sessionToken = item.freeformId || item.workoutSessionId || item.routineFinishedAt || item.sessionStartedAt || "";
   const date = String(item.date || "").trim();
   const routine = String(item.routine || "").trim();
   return sessionToken ? `${date}|${routine}|${sessionToken}` : `legacy|${date}|${routine}`;
+}
+
+function selectCalendarDate(date) {
+  els.freeWorkoutDate.value = date;
+  if (els.calendarMonthInput.value !== date.slice(0, 7)) els.calendarMonthInput.value = date.slice(0, 7);
+  renderCalendar();
+  els.freeWorkoutName.focus();
+}
+
+function saveFreeWorkout() {
+  const date = els.freeWorkoutDate.value || today();
+  const routine = clean(els.freeWorkoutName.value);
+  const notes = clean(els.freeWorkoutNotes.value);
+  if (!isIsoDate(date)) {
+    showToast("Elige una fecha válida");
+    return;
+  }
+  if (!routine) {
+    showToast("Escribe el nombre del entreno");
+    return;
+  }
+  const createdAt = new Date().toISOString();
+  state.history.unshift(entry(date, routine, "Registro suelto", "", "", "hold", notes, {
+    entryType: "freeform",
+    freeformId: crypto.randomUUID(),
+    createdAt,
+  }));
+  saveState();
+  els.freeWorkoutName.value = "";
+  els.freeWorkoutNotes.value = "";
+  els.calendarMonthInput.value = date.slice(0, 7);
+  refreshAfterHistoryChange();
+  showToast("Registro suelto añadido");
 }
 
 function changeCalendarMonth(offset) {
@@ -1412,6 +1468,11 @@ function formatHistoryReps(item) {
   const sets = getHistorySets(item);
   if (sets.length) return formatSetsReps(sets);
   return clean(item?.reps || item?.legacyReps);
+}
+
+function getHistoryDetailHtml(item) {
+  if (item.entryType === "freeform") return item.notes ? escapeHtml(item.notes) : "Registro suelto";
+  return `${escapeHtml(formatHistoryReps(item) || "-")} · ${escapeHtml(item.weight || "-")} kg${item.notes ? ` · ${escapeHtml(item.notes)}` : ""}`;
 }
 
 function formatSetsReps(sets) {
@@ -1497,6 +1558,7 @@ function exportCsv() {
     "Notas",
     "Decision",
     "Reps antiguas",
+    "Tipo",
     "sessionStartedAt",
     "sessionStartSource",
     "routineFinishedAt",
@@ -1525,6 +1587,7 @@ function exportCsv() {
         item.notes,
         decisionText(item.decision),
         item.legacyReps || (!sets.length ? item.reps : ""),
+        item.entryType || "workout",
         item.sessionStartedAt,
         item.sessionStartSource,
         item.routineFinishedAt,
