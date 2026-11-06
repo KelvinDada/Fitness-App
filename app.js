@@ -192,7 +192,7 @@ init();
 
 function init() {
   restoreSessionDraft();
-  els.sessionDate.value ||= today();
+  updateWorkoutDate();
   els.calendarMonthInput.value = currentMonthValue();
   els.freeWorkoutDate.value = today();
   els.dumbbellStep.value = state.settings.dumbbellStep;
@@ -281,14 +281,6 @@ function bindEvents() {
     renderWorkout();
   });
 
-  els.sessionDate.addEventListener("change", () => {
-    if (!resolveActiveSessionBeforeChange()) {
-      els.sessionDate.value = sessionMeta.routineDate || today();
-      return;
-    }
-    saveSessionDraft();
-    updateSessionStartPanel();
-  });
   els.startSessionButton.addEventListener("click", () => startSession("manual"));
   els.longSessionFinishButton.addEventListener("click", () => finishSession({ force: true }));
   els.longSessionContinueButton.addEventListener("click", () => {
@@ -954,19 +946,20 @@ function startSession(source = "manual", options = {}) {
     ...sessionMeta,
     sessionStartedAt: new Date().toISOString(),
     sessionStartSource: source,
-    routineDate: els.sessionDate.value || today(),
+    routineDate: today(),
     routineName: currentRoutine,
     expectedDurationMin: DEFAULT_EXPECTED_ROUTINE_DURATION_MIN,
     finishedAt: "",
   };
   updateSessionStartPanel();
   checkLongSession();
-  saveSessionDraft();
+  persistSessionDraftNow();
   if (!options.silent) showToast("Rutina iniciada");
   return true;
 }
 
 function updateSessionStartPanel() {
+  updateWorkoutDate();
   const startedAt = sessionMeta.sessionStartedAt;
   els.sessionStartPanel.classList.toggle("is-started", Boolean(startedAt));
   els.startSessionButton.hidden = Boolean(startedAt);
@@ -998,6 +991,7 @@ function getSessionTiming(finishedAt = new Date().toISOString()) {
 }
 
 function checkLongSession() {
+  updateWorkoutDate();
   if (!sessionMeta.sessionStartedAt || sessionMeta.finishedAt) {
     els.longSessionAlert.hidden = true;
     return;
@@ -1077,7 +1071,6 @@ function restoreSessionDraft() {
     const stored = JSON.parse(localStorage.getItem(DRAFT_KEY) || "{}");
     if (!stored || typeof stored !== "object") return;
     if (stored.routine && state.routines[stored.routine]) currentRoutine = stored.routine;
-    if (stored.date) els.sessionDate.value = stored.date;
     sessionExercises = Array.isArray(stored.sessionExercises) ? uniqueExercises(stored.sessionExercises) : [];
     sessionSkippedExercises = Array.isArray(stored.sessionSkippedExercises) ? uniqueExercises(stored.sessionSkippedExercises) : [];
     sessionMeta = { ...createEmptySessionMeta(), ...(stored.sessionMeta || {}) };
@@ -1109,13 +1102,13 @@ function persistSessionDraftNow() {
   localStorage.setItem(
     DRAFT_KEY,
     JSON.stringify({
-      date: els.sessionDate.value || today(),
+      date: getWorkoutDate(),
       routine: currentRoutine,
       sessionExercises,
       sessionSkippedExercises,
       sessionMeta: {
         ...sessionMeta,
-        routineDate: sessionMeta.routineDate || els.sessionDate.value || today(),
+        routineDate: getWorkoutDate(),
         routineName: sessionMeta.routineName || currentRoutine,
       },
       drafts: draftEntries,
@@ -1152,7 +1145,7 @@ function finishSession(options = {}) {
 }
 
 function saveSession() {
-  const sessionDate = els.sessionDate.value || today();
+  const sessionDate = getWorkoutDate();
   const rows = Array.from(drafts.entries())
     .map(([exercise, draft]) => ({ exercise, draft }))
     .filter(({ draft }) => hasExerciseProgress(draft));
@@ -1234,7 +1227,7 @@ function resetWorkoutSession() {
   sessionExercises = [];
   sessionSkippedExercises = [];
   sessionMeta = createEmptySessionMeta();
-  els.sessionDate.value = today();
+  updateWorkoutDate();
   els.exerciseList.querySelectorAll("input, textarea").forEach((field) => {
     field.value = "";
   });
@@ -1806,7 +1799,25 @@ function diffMinutes(start, end) {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateValue(new Date());
+}
+
+function localDateValue(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function getWorkoutDate() {
+  // Una sesión iniciada conserva su día, incluso si termina después de medianoche.
+  if (sessionMeta.sessionStartedAt) {
+    if (isIsoDate(sessionMeta.routineDate)) return sessionMeta.routineDate;
+    const started = new Date(sessionMeta.sessionStartedAt);
+    if (!Number.isNaN(started.getTime())) return localDateValue(started);
+  }
+  return today();
+}
+
+function updateWorkoutDate() {
+  els.sessionDate.value = formatLongDate(getWorkoutDate());
 }
 
 function currentMonthValue() {

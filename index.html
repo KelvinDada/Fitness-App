@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#101313" />
     <title>Registro Gym</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=20261106-routine-editor" />
+    <link rel="stylesheet" href="./styles.css?v=20261106-today" />
   </head>
   <body>
     <div class="app-shell">
@@ -28,7 +28,7 @@
             <div class="session-meta">
               <label>
                 <span>Fecha</span>
-                <input id="sessionDate" type="date" />
+                <input id="sessionDate" type="text" readonly aria-label="Fecha automática del entreno" />
               </label>
               <label>
                 <span>Rutina</span>
@@ -253,6 +253,6 @@
       </section>
     </div>
     <script src="./seed-history.js?v=20260814-freeform-calendar"></script>
-    <script src="./app.js?v=20261106-routine-editor"></script>
+    <script src="./app.js?v=20261106-today"></script>
   </body>
 </html>
