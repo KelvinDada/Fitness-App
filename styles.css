@@ -901,13 +901,29 @@ button.calendar-day {
 
 .routine-exercise-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px 8px 8px 10px;
   background: #fff;
+}
+
+.routine-exercise-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.routine-exercise-actions button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.routine-manager-card > select,
+.routine-add-row input,
+.routine-manager-head input {
+  min-width: 0;
 }
 
 .routine-exercise-row span {

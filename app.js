@@ -615,7 +615,7 @@ function setSessionAddMode(mode) {
 }
 
 function addSessionExercise() {
-  const exercise = cleanExerciseName(els.sessionExerciseInput.value);
+  const exercise = canonicalExerciseName(els.sessionExerciseInput.value);
   if (!exercise) {
     showToast("Escribe un ejercicio");
     return;
@@ -655,10 +655,11 @@ function createRoutine() {
     showToast("Escribe una rutina");
     return;
   }
-  if (state.routines[routine]) {
+  if (state.routines[routine] || Object.keys(state.routines).some((name) => sameName(name, routine))) {
     showToast("Esa rutina ya existe");
     return;
   }
+  if (!resolveActiveSessionBeforeChange()) return;
   state.routines[routine] = [];
   currentRoutine = routine;
   persistCurrentRoutine();
@@ -699,10 +700,17 @@ function renderRoutineManager() {
 
     const list = document.createElement("div");
     list.className = "routine-exercise-list";
-    exercises.forEach((exercise) => {
+    exercises.forEach((exercise, index) => {
       const row = document.createElement("div");
       row.className = "routine-exercise-row";
       row.innerHTML = `<span>${escapeHtml(exercise)}</span>`;
+      const actions = document.createElement("div");
+      actions.className = "routine-exercise-actions";
+      const edit = routineAction("✎", `Cambiar nombre de ${exercise}`, () => editExerciseName(exercise));
+      const up = routineAction("↑", `Subir ${exercise}`, () => moveRoutineExercise(routine, index, -1));
+      const down = routineAction("↓", `Bajar ${exercise}`, () => moveRoutineExercise(routine, index, 1));
+      up.disabled = index === 0;
+      down.disabled = index === exercises.length - 1;
       const removeButton = document.createElement("button");
       removeButton.className = "small-icon-button";
       removeButton.type = "button";
@@ -710,10 +718,21 @@ function renderRoutineManager() {
       removeButton.setAttribute("aria-label", `Quitar ${exercise}`);
       removeButton.textContent = "×";
       removeButton.addEventListener("click", () => removeExerciseFromRoutine(routine, exercise));
-      row.append(removeButton);
+      actions.append(edit, up, down, removeButton);
+      row.append(actions);
       list.append(row);
     });
     card.append(list);
+
+    const picker = document.createElement("select");
+    picker.setAttribute("aria-label", `Elegir ejercicio existente para ${routine}`);
+    picker.add(new Option("Elegir ejercicio existente…", ""));
+    getExerciseCatalog().filter((name) => !exercises.some((exercise) => sameName(exercise, name)))
+      .forEach((name) => picker.add(new Option(name, name)));
+    picker.addEventListener("change", () => {
+      if (picker.value) addExerciseToRoutine(routine, picker);
+    });
+    card.append(picker);
 
     const addRow = document.createElement("div");
     addRow.className = "routine-add-row";
@@ -741,7 +760,7 @@ function renameRoutine(oldName, rawName) {
     renderRoutineManager();
     return;
   }
-  if (state.routines[newName]) {
+  if ((newName !== oldName && state.routines[newName]) || Object.keys(state.routines).some((name) => name !== oldName && sameName(name, newName))) {
     showToast("Esa rutina ya existe");
     renderRoutineManager();
     return;
@@ -751,13 +770,19 @@ function renameRoutine(oldName, rawName) {
     nextRoutines[routine === oldName ? newName : routine] = exercises;
   });
   state.routines = nextRoutines;
+  state.history.forEach((item) => {
+    if (item.entryType !== "freeform" && item.routine === oldName) item.routine = newName;
+  });
+  if (sessionMeta.routineName === oldName) sessionMeta.routineName = newName;
   if (currentRoutine === oldName) currentRoutine = newName;
   persistCurrentRoutine();
   saveState();
-  saveSessionDraft();
+  persistSessionDraftNow();
   renderRoutineControls();
   renderWorkout();
   renderRoutineManager();
+  renderHistory();
+  renderCalendar();
   showToast("Rutina renombrada");
 }
 
@@ -778,7 +803,7 @@ function deleteRoutine(routine) {
 }
 
 function addExerciseToRoutine(routine, input) {
-  const exercise = cleanExerciseName(input.value);
+  const exercise = canonicalExerciseName(input.value);
   if (!exercise) return;
   if ((state.routines[routine] || []).some((item) => sameName(item, exercise))) {
     showToast("Ese ejercicio ya existe");
@@ -791,6 +816,85 @@ function addExerciseToRoutine(routine, input) {
   renderRoutineControls();
   renderRoutineManager();
   showToast("Ejercicio añadido");
+}
+
+function getExerciseCatalog() {
+  return uniqueExercises([
+    ...Object.values(state.routines).flat(),
+    ...state.history.filter((item) => item.entryType !== "freeform").map((item) => item.exercise),
+    ...Object.keys(state.exerciseStats || {}),
+    ...sessionExercises,
+  ]).sort((a, b) => a.localeCompare(b, "es"));
+}
+
+function canonicalExerciseName(value) {
+  const name = cleanExerciseName(value);
+  return getExerciseCatalog().find((item) => sameName(item, name)) || name;
+}
+
+function routineAction(symbol, label, action) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "small-icon-button";
+  button.textContent = symbol;
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  button.addEventListener("click", action);
+  return button;
+}
+
+function moveRoutineExercise(routine, index, offset) {
+  const exercises = state.routines[routine];
+  const target = index + offset;
+  if (!exercises || target < 0 || target >= exercises.length) return;
+  [exercises[index], exercises[target]] = [exercises[target], exercises[index]];
+  saveState();
+  renderRoutineManager();
+  if (routine === currentRoutine) renderWorkout();
+}
+
+function editExerciseName(oldName) {
+  const rawName = window.prompt("Nuevo nombre del ejercicio (se actualizará en todas las rutinas y en su historial):", oldName);
+  if (rawName === null) return;
+  renameExercise(oldName, rawName);
+}
+
+function renameExercise(oldName, rawName) {
+  const requested = cleanExerciseName(rawName);
+  const newName = getExerciseCatalog().find((name) => name !== oldName && sameName(name, requested)) || requested;
+  if (!newName || newName === oldName) return;
+  const exists = getExerciseCatalog().some((name) => name === newName);
+  if (exists && !window.confirm(`Ya existe «${newName}». ¿Unir «${oldName}» con ese ejercicio en todas las rutinas y conservar los registros de ambos?`)) return;
+  const oldDraft = drafts.get(oldName);
+  const targetDraft = drafts.get(newName);
+  if (hasExerciseProgress(oldDraft) && hasExerciseProgress(targetDraft)) {
+    showToast("Termina el entreno antes de unir dos ejercicios con datos actuales");
+    return;
+  }
+  // El nombre es la clave compartida por rutinas e historial: cambiarla de forma conjunta conserva el vínculo.
+  Object.keys(state.routines).forEach((routine) => {
+    state.routines[routine] = uniqueExercises(state.routines[routine].map((name) => name === oldName ? newName : name));
+  });
+  state.history.forEach((item) => {
+    if (item.entryType !== "freeform" && item.exercise === oldName) item.exercise = newName;
+  });
+  const stats = state.exerciseStats || {};
+  if (stats[oldName]) {
+    const from = stats[oldName];
+    const to = stats[newName];
+    stats[newName] = { ...(to && String(to.date || "") > String(from.date || "") ? to : from),
+      best: Math.max(Number(from.best) || 0, Number(to?.best) || 0) || "" };
+    delete stats[oldName];
+  }
+  if (oldDraft && (!targetDraft || hasExerciseProgress(oldDraft))) drafts.set(newName, oldDraft);
+  drafts.delete(oldName);
+  sessionExercises = uniqueExercises(sessionExercises.map((name) => name === oldName ? newName : name));
+  sessionSkippedExercises = uniqueExercises(sessionSkippedExercises.map((name) => name === oldName ? newName : name));
+  saveState();
+  persistSessionDraftNow();
+  renderRoutineManager();
+  refreshAfterHistoryChange();
+  showToast(exists ? "Ejercicios e historiales unidos" : "Ejercicio renombrado");
 }
 
 function removeExerciseFromRoutine(routine, exercise) {
