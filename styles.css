@@ -728,6 +728,8 @@ textarea:focus {
   background: #fff;
   font-size: 0.82rem;
   font-weight: 850;
+  grid-template-rows: 1fr auto;
+  padding: 3px 0;
 }
 
 button.calendar-day {
@@ -739,12 +741,98 @@ button.calendar-day {
   background: transparent;
 }
 
+.calendar-day.is-planned-train {
+  border-color: #4386b4;
+  background: #eaf4fc;
+}
+
+.calendar-day.is-planned-rest {
+  border-color: #bc8b3d;
+  background: #fff5df;
+}
+
 .calendar-day.is-active {
   border-color: var(--accent);
   color: #0e5d4a;
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px rgba(31, 122, 100, 0.18);
 }
+
+.calendar-day-markers {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  min-height: 11px;
+}
+
+.calendar-marker {
+  display: inline-grid;
+  width: 12px;
+  height: 11px;
+  place-items: center;
+  border-radius: 3px;
+  font-size: 0.56rem;
+  line-height: 1;
+}
+
+.marker-done { color: #fff; background: var(--accent); }
+.marker-train { color: #fff; background: #286a9a; }
+.marker-rest { color: #fff; background: #956112; }
+
+.calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.calendar-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.calendar-plan-panel {
+  min-width: 0;
+  margin: 4px 0 0;
+  padding: 10px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.calendar-plan-panel legend {
+  padding: 0 8px 0 0;
+  color: var(--ink);
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.calendar-plan-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.calendar-plan-options label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px;
+  background: #fff;
+}
+
+.calendar-plan-options input { width: auto; margin: 0; padding: 0; accent-color: var(--accent); }
+.calendar-plan-options label span { margin: 0; font-size: 0.75rem; }
+.calendar-plan-options label:has(input:checked) { border-color: var(--ink); }
+.calendar-plan-options label:has(input:disabled) { opacity: 0.5; }
+.calendar-plan-panel[hidden],
+.calendar-add-panel[hidden] { display: none; }
 
 .calendar-day.is-selected {
   border-color: var(--dark);

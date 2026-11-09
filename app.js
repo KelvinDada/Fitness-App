@@ -6,6 +6,7 @@ const DEFAULT_EXPECTED_ROUTINE_DURATION_MIN = 70;
 const LONG_SESSION_CHECK_MS = 60_000;
 
 const seed = {
+  calendarPlans: {},
   settings: {
     dumbbellStep: 2.5,
     machineStep: 5,
@@ -168,6 +169,9 @@ const els = {
   prevMonthButton: document.querySelector("#prevMonthButton"),
   nextMonthButton: document.querySelector("#nextMonthButton"),
   calendarGrid: document.querySelector("#calendarGrid"),
+  calendarPlanPanel: document.querySelector("#calendarPlanPanel"),
+  calendarPlanDate: document.querySelector("#calendarPlanDate"),
+  calendarFreeWorkoutPanel: document.querySelector("#calendarFreeWorkoutPanel"),
   freeWorkoutDate: document.querySelector("#freeWorkoutDate"),
   freeWorkoutName: document.querySelector("#freeWorkoutName"),
   freeWorkoutNotes: document.querySelector("#freeWorkoutNotes"),
@@ -300,6 +304,9 @@ function bindEvents() {
   els.calendarMonthInput.addEventListener("change", renderCalendar);
   els.prevMonthButton.addEventListener("click", () => changeCalendarMonth(-1));
   els.nextMonthButton.addEventListener("click", () => changeCalendarMonth(1));
+  document.querySelectorAll('input[name="calendarPlan"]').forEach((input) => {
+    input.addEventListener("change", () => setCalendarPlan(els.freeWorkoutDate.value, input.value));
+  });
   els.freeWorkoutDate.addEventListener("change", () => {
     if (isIsoDate(els.freeWorkoutDate.value)) {
       els.calendarMonthInput.value = els.freeWorkoutDate.value.slice(0, 7);
@@ -1374,6 +1381,7 @@ function renderCalendar() {
   els.calendarMonthInput.value = monthValue;
   const monthItems = getMonthWorkoutEntries(monthValue);
   renderCalendarGrid(monthValue, monthItems);
+  renderCalendarPlan();
   renderMonthWorkoutList(monthItems);
 }
 
@@ -1402,17 +1410,60 @@ function renderCalendarGrid(monthValue, monthItems) {
   for (let day = 1; day <= daysInMonth; day += 1) {
     const dayKey = String(day).padStart(2, "0");
     const date = `${monthValue}-${dayKey}`;
+    const plan = getCalendarPlan(date);
+    const completed = activeDays.has(dayKey);
     const cell = document.createElement("button");
     cell.type = "button";
     cell.className = [
       "calendar-day",
-      activeDays.has(dayKey) ? "is-active" : "",
+      plan ? `is-planned-${plan}` : "",
+      completed ? "is-active" : "",
       selectedDate === date ? "is-selected" : "",
     ].filter(Boolean).join(" ");
-    cell.textContent = day;
+    cell.dataset.date = date;
+    cell.setAttribute("aria-pressed", String(selectedDate === date));
+    const status = [completed ? "Entreno realizado" : "", plan === "train" ? "Entreno previsto" : plan === "rest" ? "Descanso previsto" : ""].filter(Boolean);
+    cell.setAttribute("aria-label", `${formatLongDate(date)}${status.length ? `: ${status.join(", ")}` : ""}`);
+    cell.innerHTML = `<span>${day}</span><span class="calendar-day-markers" aria-hidden="true">${completed ? '<b class="calendar-marker marker-done">✓</b>' : ""}${plan ? `<b class="calendar-marker marker-${plan}">${plan === "train" ? "E" : "D"}</b>` : ""}</span>`;
     cell.addEventListener("click", () => selectCalendarDate(date));
     els.calendarGrid.append(cell);
   }
+}
+
+function getCalendarPlan(date) {
+  const plan = state.calendarPlans?.[date];
+  return plan === "train" || plan === "rest" ? plan : "";
+}
+
+function setCalendarPlan(date, plan) {
+  if (!isIsoDate(date) || !["none", "train", "rest"].includes(plan)) return;
+  // Los planes pasados se conservan como referencia; solo se pueden quitar.
+  if (date < today() && plan !== "none") {
+    showToast("Elige hoy o una fecha futura para planificar");
+    renderCalendarPlan();
+    return;
+  }
+  const plans = state.calendarPlans;
+  state.calendarPlans = plans && typeof plans === "object" && !Array.isArray(plans) ? { ...plans } : {};
+  if (plan === "none") delete state.calendarPlans[date];
+  else state.calendarPlans[date] = plan;
+  saveState();
+  renderCalendar();
+  showToast(plan === "none" ? "Plan eliminado" : "Plan guardado");
+}
+
+function renderCalendarPlan() {
+  const date = els.freeWorkoutDate.value;
+  const valid = isIsoDate(date);
+  const inMonth = valid && date.startsWith(`${els.calendarMonthInput.value}-`);
+  const plan = getCalendarPlan(date);
+  els.calendarPlanPanel.hidden = !inMonth || (date < today() && !plan);
+  els.calendarPlanDate.textContent = `Plan · ${formatLongDate(date)}`;
+  document.querySelectorAll('input[name="calendarPlan"]').forEach((input) => {
+    input.checked = input.value === (plan || "none");
+    input.disabled = date < today() && input.value !== "none";
+  });
+  els.calendarFreeWorkoutPanel.hidden = valid && date > today();
 }
 
 function renderMonthWorkoutList(items) {
@@ -1475,7 +1526,7 @@ function selectCalendarDate(date) {
   els.freeWorkoutDate.value = date;
   if (els.calendarMonthInput.value !== date.slice(0, 7)) els.calendarMonthInput.value = date.slice(0, 7);
   renderCalendar();
-  els.freeWorkoutName.focus();
+  if (date <= today()) els.freeWorkoutName.focus();
 }
 
 function saveFreeWorkout() {
@@ -1484,6 +1535,10 @@ function saveFreeWorkout() {
   const notes = clean(els.freeWorkoutNotes.value);
   if (!isIsoDate(date)) {
     showToast("Elige una fecha válida");
+    return;
+  }
+  if (date > today()) {
+    showToast("Para un día futuro, marca un entreno o descanso previsto");
     return;
   }
   if (!routine) {

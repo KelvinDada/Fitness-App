@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#101313" />
     <title>Registro Gym</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=20261106-today" />
+    <link rel="stylesheet" href="./styles.css?v=20261109-calendar-plans" />
   </head>
   <body>
     <div class="app-shell">
@@ -96,8 +96,21 @@
               <button class="small-icon-button" id="nextMonthButton" type="button" aria-label="Mes siguiente" title="Mes siguiente">›</button>
             </div>
             <div class="calendar-grid" id="calendarGrid" aria-label="Calendario mensual"></div>
+            <div class="calendar-legend" aria-label="Leyenda del calendario">
+              <span><b class="calendar-marker marker-done">✓</b> Realizado</span>
+              <span><b class="calendar-marker marker-train">E</b> Entreno previsto</span>
+              <span><b class="calendar-marker marker-rest">D</b> Descanso previsto</span>
+            </div>
+            <fieldset class="calendar-plan-panel" id="calendarPlanPanel" hidden>
+              <legend id="calendarPlanDate">Plan del día</legend>
+              <div class="calendar-plan-options">
+                <label><input type="radio" name="calendarPlan" value="none" /><span>Sin plan</span></label>
+                <label><input type="radio" name="calendarPlan" value="train" /><span>Entreno</span></label>
+                <label><input type="radio" name="calendarPlan" value="rest" /><span>Descanso</span></label>
+              </div>
+            </fieldset>
           </section>
-          <section class="calendar-add-panel">
+          <section class="calendar-add-panel" id="calendarFreeWorkoutPanel">
             <h2>Registro suelto</h2>
             <div class="free-workout-grid">
               <label>
@@ -253,6 +266,6 @@
       </section>
     </div>
     <script src="./seed-history.js?v=20260814-freeform-calendar"></script>
-    <script src="./app.js?v=20261106-today"></script>
+    <script src="./app.js?v=20261109-calendar-plans"></script>
   </body>
 </html>
